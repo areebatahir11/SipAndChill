@@ -1,0 +1,279 @@
+// Sip&Chill / PearlSolutions - Step 1: tenancy, auth and RBAC.
+// Later modules (products, ingredients, orders...) add their own tenant-owned tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL") // pooled connection (app runtime)
+  directUrl = env("DIRECT_URL")   // direct connection (migrations)
+}
+
+model Tenant {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  businessType String   @default("JUICE_SHOP") // future: COFFEE_SHOP, ICE_CREAM_SHOP
+  currency     String   @default("PKR")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships    Membership[]
+  auditLogs      AuditLog[]
+  settings       TenantSettings?
+  suppliers      Supplier[]
+  ingredients    Ingredient[]
+  stockMovements StockMovement[]
+  categories     Category[]
+  products       Product[]
+}
+
+// Per-business settings (one row per tenant). Receipt options are used by Step 7.
+model TenantSettings {
+  id             String   @id @default(cuid())
+  tenantId       String   @unique
+  phone          String?
+  address        String?
+  receiptWidthMm Int      @default(80) // 58 or 80
+  receiptFooter  String   @default("Thank you! Visit again.")
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique // always stored lower-case
+  name             String
+  passwordHash     String
+  isActive         Boolean   @default(true)
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  memberships Membership[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
+  stockMovements StockMovement[]
+}
+
+// A user's access to one tenant, with one role. This is the tenant-isolation anchor:
+// every request resolves tenantId from the membership, never from the client.
+model Membership {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  roleId    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     Role      @relation(fields: [roleId], references: [id])
+  sessions Session[]
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+// System roles: OWNER, MANAGER, CASHIER, INVENTORY_STAFF. Custom per-tenant roles can add a
+// nullable tenantId later without touching the permission checks.
+model Role {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  rank        Int      @default(0) // higher = more authority; users only manage lower ranks (owners: equal too)
+  isSystem    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  permissions RolePermission[]
+  memberships Membership[]
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  code        String @unique // e.g. "orders.create"
+  module      String
+  description String
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+// Server-side sessions. Only a SHA-256 hash of the cookie token is stored, so a database
+// leak does not expose usable session tokens.
+model Session {
+  id           String   @id @default(cuid())
+  tokenHash    String   @unique
+  userId       String
+  membershipId String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  ipAddress    String?
+  userAgent    String?
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  userId    String?
+  action    String // e.g. "staff.created", "auth.login"
+  entity    String?
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Step 2: inventory. Every table carries tenantId; services always filter by it.
+// ---------------------------------------------------------------------------
+
+model Supplier {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredients Ingredient[]
+
+  @@unique([tenantId, name])
+}
+
+// One table for both food ingredients (kind INGREDIENT: oranges, milk) and non-food
+// materials (kind MATERIAL: cups, straws, receipt rolls).
+model Ingredient {
+  id           String    @id @default(cuid())
+  tenantId     String
+  name         String
+  kind         String    @default("INGREDIENT") // INGREDIENT | MATERIAL
+  unit         String // kg, g, L, ml, pcs ...
+  stock        Decimal   @default(0) @db.Decimal(12, 3)
+  minStock     Decimal   @default(0) @db.Decimal(12, 3) // reorder level
+  costPerUnit  Decimal   @default(0) @db.Decimal(12, 2)
+  expiryDate   DateTime?
+  supplierId   String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier  Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  movements   StockMovement[]
+  recipeItems RecipeItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, kind])
+  @@index([supplierId])
+}
+
+// Append-only stock ledger. quantity is signed: + adds stock, - removes it.
+// type: OPENING | PURCHASE | ADJUSTMENT | WASTAGE | USAGE (USAGE is written by orders in Step 5)
+model StockMovement {
+  id           String   @id @default(cuid())
+  tenantId     String
+  ingredientId String
+  type         String
+  quantity     Decimal  @db.Decimal(12, 3)
+  unitCost     Decimal? @db.Decimal(12, 2)
+  note         String?
+  userId       String?
+  createdAt    DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([ingredientId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Step 3: menu. Categories group products; a product's recipe lists the stock it consumes.
+// ---------------------------------------------------------------------------
+
+model Category {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([tenantId, name])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  tenantId    String
+  categoryId  String?
+  name        String
+  description String?
+  price       Decimal  @db.Decimal(12, 2)
+  isActive    Boolean  @default(true) // false = hidden from the POS
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  recipeItems RecipeItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, categoryId])
+}
+
+// Stock consumed by ONE unit of the product (Step 5 deducts it when an order is placed).
+model RecipeItem {
+  id           String  @id @default(cuid())
+  tenantId     String
+  productId    String
+  ingredientId String
+  quantity     Decimal @db.Decimal(12, 3)
+
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Restrict)
+
+  @@unique([productId, ingredientId])
+  @@index([tenantId])
+  @@index([ingredientId])
+}

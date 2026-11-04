@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* Sip&Chill design tokens. Re-branding a tenant later = changing these variables.
+   Roles: night = sidebar | sand = active item | slate = primary buttons | blush = page background
+          peach = lines/hover | rose = accents | taupe = input borders | graphite = secondary text */
+@theme {
+  --color-blush: #fff5f5;
+  --color-peach: #f7d6d0;
+  --color-rose: #e2b4bd;
+  --color-graphite: #4a4a4a;
+  --color-night: #222831;
+  --color-slate: #393e46;
+  --color-taupe: #948979;
+  --color-sand: #dfd0b8;
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  body { @apply bg-blush font-sans text-[15px] leading-normal text-night antialiased; }
+  :focus-visible { outline: 3px solid var(--color-taupe); outline-offset: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
