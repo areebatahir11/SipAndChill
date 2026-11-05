@@ -29,6 +29,11 @@ model Tenant {
   lastPaidAt    DateTime?
   internalNote  String?   // visible to PearlSolutions only
 
+  // Branding: null = no logo. The picture itself lives in TenantLogo (kept out of this row so normal queries never load it);
+  // this timestamp is the cache-busting version the sidebar puts in the image URL.
+  logoUpdatedAt DateTime?
+
+  logo           TenantLogo?
   memberships    Membership[]
   auditLogs      AuditLog[]
   settings       TenantSettings?
@@ -50,6 +55,16 @@ model TenantSettings {
   receiptFooter  String   @default("Thank you! Visit again.")
   nextOrderNo    Int      @default(1) // Step 5: per-business order number, incremented inside the order transaction
   updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// One small logo picture per business (max 300 KB, validated by file signature), uploaded by the owner in Shop Settings.
+model TenantLogo {
+  tenantId    String   @id
+  contentType String   // image/png | image/jpeg | image/webp
+  data        Bytes
+  updatedAt   DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

@@ -68,7 +68,10 @@ export async function resolveSession() {
     tenantId: membership.tenantId,
     user: { id: user.id, name: user.name, email: user.email },
     mustChangePassword: user.mustChangePassword,
-    tenant: { id: membership.tenant.id, name: membership.tenant.name, currency: membership.tenant.currency },
+    tenant: {
+      id: membership.tenant.id, name: membership.tenant.name, currency: membership.tenant.currency,
+      logoVersion: membership.tenant.logoUpdatedAt ? membership.tenant.logoUpdatedAt.getTime() : null, // null = no logo
+    },
     role: { code: membership.role.code, name: membership.role.name, rank: membership.role.rank },
     permissions: membership.role.permissions.map((rp) => rp.permission.code),
   };
