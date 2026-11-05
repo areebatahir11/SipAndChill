@@ -14,6 +14,5 @@ export const PATCH = handle(async (request, { params }) => {
 export const DELETE = handle(async (request, { params }) => {
   const auth = await requireApi(request, P.PRODUCTS_MANAGE);
   const { id } = await params;
-  await deleteProduct(auth, id);
-  return ok({ deleted: true });
+  return ok(await deleteProduct(auth, id));
 });

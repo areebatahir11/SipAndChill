@@ -39,6 +39,7 @@ export default function StaffDialogs({ dialog, form, set, error, busy, roles, on
           <Field label="Temporary password">
             <Input type="password" autoComplete="new-password" required value={form.password || ''} onChange={set('password')} placeholder="10+ characters, with a letter and a number" />
           </Field>
+          <p className="text-[13px] text-graphite">They will be asked to choose their own password the first time they log in.</p>
           <RoleSelect value={form.roleCode} onChange={set('roleCode')} roles={roles} />
           {error && <Alert>{error}</Alert>}
           <Actions onCancel={onClose} busy={busy} label={busy ? 'Creating…' : 'Create account'} />

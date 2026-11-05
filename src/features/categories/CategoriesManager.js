@@ -63,7 +63,7 @@ export default function CategoriesManager() {
 
   return (
     <>
-      <PageHeader title="Categories" sub="Group your menu: juices, shakes, coffee, snacks…">
+      <PageHeader title="Menu Sections" sub="Group your menu: juices, shakes, coffee, snacks…">
         {canManage && <Button variant="primary" onClick={() => setDialog({ type: 'form' })}>Add category</Button>}
       </PageHeader>
       {notice && <Alert tone="success" className="mb-4">{notice}</Alert>}

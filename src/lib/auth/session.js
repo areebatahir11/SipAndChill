@@ -33,11 +33,8 @@ export async function destroyCurrentSession() {
 export const revokeUserSessions = (userId, exceptSessionId) =>
   prisma.session.deleteMany({ where: { userId, ...(exceptSessionId ? { id: { not: exceptSessionId } } : {}) } });
 
-/**
- * Resolves the cookie into { user, tenant, role, permissions } or null.
- * tenantId always comes from the stored membership, never from the client.
- */
-export async function resolveSession() {
+/** Looks up the cookie's session (any kind). Returns null when missing, expired or the user is disabled. */
+async function loadSession() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
@@ -50,17 +47,40 @@ export async function resolveSession() {
       },
     },
   });
-  if (!session || session.expiresAt <= new Date()) return null;
-  const { user, membership } = session;
-  if (!user.isActive || !membership.isActive || !membership.tenant.isActive) return null;
+  if (!session || session.expiresAt <= new Date() || !session.user.isActive) return null;
+  return session;
+}
+
+/**
+ * Tenant session: resolves the cookie into { user, tenant, role, permissions } or null.
+ * tenantId always comes from the stored membership, never from the client.
+ * PearlSolutions platform sessions have no membership, so they never resolve here.
+ */
+export async function resolveSession() {
+  const session = await loadSession();
+  const membership = session?.membership;
+  if (!membership || !membership.isActive || !membership.tenant.isActive) return null;
+  const { user } = session;
 
   return {
     sessionId: session.id,
     membershipId: membership.id,
     tenantId: membership.tenantId,
     user: { id: user.id, name: user.name, email: user.email },
+    mustChangePassword: user.mustChangePassword,
     tenant: { id: membership.tenant.id, name: membership.tenant.name, currency: membership.tenant.currency },
     role: { code: membership.role.code, name: membership.role.name, rank: membership.role.rank },
     permissions: membership.role.permissions.map((rp) => rp.permission.code),
   };
+}
+
+/**
+ * PearlSolutions session: { sessionId, user } or null. Only a platform admin's membership-less
+ * session qualifies, so a tenant session can never be mistaken for a platform one.
+ */
+export async function resolvePlatformSession() {
+  const session = await loadSession();
+  if (!session || session.membership || !session.user.isPlatformAdmin) return null;
+  const { user } = session;
+  return { sessionId: session.id, user: { id: user.id, name: user.name, email: user.email } };
 }

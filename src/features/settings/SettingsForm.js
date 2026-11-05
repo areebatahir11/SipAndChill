@@ -34,7 +34,7 @@ export default function SettingsForm() {
 
   return (
     <>
-      <PageHeader title="Business settings" sub="Shown on receipts and across the app." />
+      <PageHeader title="Shop Settings" sub="Shown on receipts and across the app." />
       {!form && !error && <p className="text-graphite">Loading…</p>}
       {error && <Alert className="mb-4">{error}</Alert>}
       {form && (

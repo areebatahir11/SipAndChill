@@ -1,5 +1,6 @@
 // Sip&Chill / PearlSolutions - Step 1: tenancy, auth and RBAC.
 // Later modules (products, ingredients, orders...) add their own tenant-owned tables.
+// Step 4 adds the PearlSolutions platform layer: User.isPlatformAdmin and per-client billing on Tenant.
 
 generator client {
   provider = "prisma-client-js"
@@ -17,9 +18,16 @@ model Tenant {
   slug         String   @unique
   businessType String   @default("JUICE_SHOP") // future: COFFEE_SHOP, ICE_CREAM_SHOP
   currency     String   @default("PKR")
-  isActive     Boolean  @default(true)
+  isActive     Boolean  @default(true) // false = suspended by PearlSolutions: nobody of this client can sign in
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  // Step 4: what PearlSolutions charges this client and whether they have paid.
+  billingStatus String    @default("UNPAID") // PAID | UNPAID
+  monthlyFee    Decimal   @default(0) @db.Decimal(12, 2)
+  dueDate       DateTime? // next payment due date
+  lastPaidAt    DateTime?
+  internalNote  String?   // visible to PearlSolutions only
 
   memberships    Membership[]
   auditLogs      AuditLog[]
@@ -29,6 +37,7 @@ model Tenant {
   stockMovements StockMovement[]
   categories     Category[]
   products       Product[]
+  orders         Order[]
 }
 
 // Per-business settings (one row per tenant). Receipt options are used by Step 7.
@@ -39,6 +48,7 @@ model TenantSettings {
   address        String?
   receiptWidthMm Int      @default(80) // 58 or 80
   receiptFooter  String   @default("Thank you! Visit again.")
+  nextOrderNo    Int      @default(1) // Step 5: per-business order number, incremented inside the order transaction
   updatedAt      DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -50,6 +60,8 @@ model User {
   name             String
   passwordHash     String
   isActive         Boolean   @default(true)
+  isPlatformAdmin  Boolean   @default(false) // PearlSolutions staff: signs in to /platform, has no tenant membership
+  mustChangePassword Boolean @default(false) // true while the password was set by someone else: the user must choose their own before using the app
   failedLoginCount Int       @default(0)
   lockedUntil      DateTime?
   lastLoginAt      DateTime?
@@ -58,8 +70,10 @@ model User {
 
   memberships Membership[]
   sessions    Session[]
+  passwordResetOtps PasswordResetOtp[]
   auditLogs   AuditLog[]
   stockMovements StockMovement[]
+  orders         Order[]
 }
 
 // A user's access to one tenant, with one role. This is the tenant-isolation anchor:
@@ -124,16 +138,33 @@ model Session {
   id           String   @id @default(cuid())
   tokenHash    String   @unique
   userId       String
-  membershipId String
+  membershipId String? // null for PearlSolutions platform sessions
   expiresAt    DateTime
   createdAt    DateTime @default(now())
   ipAddress    String?
   userAgent    String?
 
   user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  membership Membership? @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
+}
+
+
+// Short-lived, single-use email OTPs for self-service password recovery.
+model PasswordResetOtp {
+  id         String   @id @default(cuid())
+  userId     String
+  otpHash    String
+  expiresAt  DateTime
+  attempts   Int      @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
   @@index([expiresAt])
 }
 
@@ -204,7 +235,7 @@ model Ingredient {
 }
 
 // Append-only stock ledger. quantity is signed: + adds stock, - removes it.
-// type: OPENING | PURCHASE | ADJUSTMENT | WASTAGE | USAGE (USAGE is written by orders in Step 5)
+// type: OPENING | PURCHASE | ADJUSTMENT | WASTAGE | USAGE (sale) | ORDER_CANCEL (restock on cancel)
 model StockMovement {
   id           String   @id @default(cuid())
   tenantId     String
@@ -214,14 +245,17 @@ model StockMovement {
   unitCost     Decimal? @db.Decimal(12, 2)
   note         String?
   userId       String?
+  orderId      String? // set for USAGE (sale) and ORDER_CANCEL (restock) movements
   createdAt    DateTime @default(now())
 
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
   user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
   @@index([ingredientId, createdAt])
+  @@index([orderId])
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +291,7 @@ model Product {
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   recipeItems RecipeItem[]
+  orderItems  OrderItem[]
 
   @@unique([tenantId, name])
   @@index([tenantId, categoryId])
@@ -276,4 +311,75 @@ model RecipeItem {
   @@unique([productId, ingredientId])
   @@index([tenantId])
   @@index([ingredientId])
+}
+
+// ---------------------------------------------------------------------------
+// Step 5: orders and payments. Order items are SNAPSHOTS (name, unit price), so later menu
+// edits never change history. Money is DECIMAL(12,2); the app computes it in integer paisa.
+// ---------------------------------------------------------------------------
+
+model Order {
+  id              String    @id @default(cuid())
+  tenantId        String
+  orderNo         Int // human-friendly, unique per tenant (see TenantSettings.nextOrderNo)
+  clientRequestId String // idempotency key generated by the POS: a retry returns the same order
+  status          String    @default("COMPLETED") // COMPLETED | CANCELLED
+  paymentStatus   String    @default("UNPAID") // PAID | PARTIAL | UNPAID
+  subtotal        Decimal   @db.Decimal(12, 2)
+  discount        Decimal   @default(0) @db.Decimal(12, 2) // reserved: no discount workflow in Version 1
+  total           Decimal   @db.Decimal(12, 2)
+  amountPaid      Decimal   @default(0) @db.Decimal(12, 2) // cash actually applied to this order (never includes change)
+  cashierId       String?
+  cashierName     String // snapshot for receipts
+  cancelledAt     DateTime?
+  cancelReason    String?
+  createdAt       DateTime  @default(now())
+
+  tenant    Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cashier   User?           @relation(fields: [cashierId], references: [id], onDelete: SetNull)
+  items     OrderItem[]
+  payments  Payment[]
+  movements StockMovement[]
+
+  @@unique([tenantId, orderNo])
+  @@unique([tenantId, clientRequestId])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status, createdAt])
+  @@index([cashierId])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  tenantId  String
+  orderId   String
+  productId String? // kept for reports; null if the product is ever removed
+  name      String // snapshot
+  unitPrice Decimal @db.Decimal(12, 2) // snapshot
+  quantity  Int
+  lineTotal Decimal @db.Decimal(12, 2)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([tenantId, productId])
+}
+
+// One row per cash handover. amountReceived = what the customer gave; amountApplied = the part
+// that settled the order; changeReturned = amountReceived - amountApplied (NOT a refund).
+model Payment {
+  id             String   @id @default(cuid())
+  tenantId       String
+  orderId        String
+  method         String   @default("CASH")
+  amountReceived Decimal  @db.Decimal(12, 2)
+  amountApplied  Decimal  @db.Decimal(12, 2)
+  changeReturned Decimal  @default(0) @db.Decimal(12, 2)
+  userId         String?
+  createdAt      DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([tenantId, createdAt])
 }

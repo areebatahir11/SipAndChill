@@ -58,7 +58,7 @@ export default function InventoryManager() {
 
   return (
     <>
-      <PageHeader title="Inventory" sub="Ingredients and materials, stock levels and reorder alerts.">
+      <PageHeader title="Stock" sub="Ingredients and materials, stock levels and reorder alerts.">
         <Input className="w-56" placeholder="Search items" value={q} onChange={(e) => setQ(e.target.value)} />
         {canManage && <Button variant="primary" onClick={() => setDialog({ type: 'form' })}>Add item</Button>}
       </PageHeader>

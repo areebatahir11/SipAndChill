@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { BUSINESS_TYPES } from '@/lib/platform/constants.mjs';
+import { requiredName } from './common';
 
 export const emailSchema = z.string().trim().toLowerCase().email('Enter a valid email address.').max(254);
 
@@ -17,5 +19,23 @@ export const loginSchema = z.object({
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(72),
+  newPassword: passwordSchema,
+});
+
+/** Public signup. `website` is a honeypot: real users never see it, bots fill it. */
+export const signupSchema = z.object({
+  businessName: requiredName('Business name'),
+  businessType: z.enum(Object.keys(BUSINESS_TYPES)),
+  ownerName: requiredName('Your name'),
+  email: emailSchema,
+  password: passwordSchema,
+  website: z.string().max(200).optional(),
+});
+
+
+export const passwordResetRequestSchema = z.object({ email: emailSchema });
+export const passwordResetCompleteSchema = z.object({
+  email: emailSchema,
+  otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code.'),
   newPassword: passwordSchema,
 });

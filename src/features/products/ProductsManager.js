@@ -41,7 +41,7 @@ export default function ProductsManager() {
   async function toggle(p) { await api(`/api/products/${p.id}`, { method: 'PATCH', body: { isActive: !p.isActive } }); load(); }
   async function remove() {
     setBusy(true); setError('');
-    try { await api(`/api/products/${dialog.product.id}`, { method: 'DELETE' }); await saved('Menu item deleted.'); }
+    try { const r = await api(`/api/products/${dialog.product.id}`, { method: 'DELETE' }); await saved(r.archived ? 'This item is on past orders, so it was hidden from the counter instead of deleted.' : 'Menu item deleted.'); }
     catch (e) { setError(e.message); }
     setBusy(false);
   }
@@ -50,7 +50,7 @@ export default function ProductsManager() {
 
   return (
     <>
-      <PageHeader title="Menu items" sub="What you sell, its price, and the stock each serving uses.">
+      <PageHeader title="Menu & Prices" sub="What you sell, its price, and the stock each serving uses.">
         <Input className="w-48" placeholder="Search menu" value={q} onChange={(e) => setQ(e.target.value)} />
         <Select className="w-44" value={cat} onChange={(e) => setCat(e.target.value)} aria-label="Filter by category">
           <option value="">All categories</option>

@@ -54,7 +54,7 @@ export default function StaffManager() {
 
   return (
     <>
-      <PageHeader title="Staff & roles" sub="Create staff accounts and decide what each person can do.">
+      <PageHeader title="My Team" sub="Give your managers and staff their own logins.">
         {canManage && assignable.length > 0 && <Button variant="primary" onClick={() => open('add', null, { roleCode: defaultRole })}>Add staff</Button>}
       </PageHeader>
       {notice && <Alert tone="success" className="mb-4">{notice}</Alert>}
@@ -85,7 +85,7 @@ export default function StaffManager() {
         })}
       </DataTable>
 
-      <h2 className="mb-3.5 mt-9 text-xl font-semibold">What each role can do</h2>
+      <h2 className="mb-3.5 mt-9 text-xl font-semibold">What each person can do</h2>
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
         {ROLES.map((r) => (
           <Card key={r.code}>

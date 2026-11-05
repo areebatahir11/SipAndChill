@@ -12,6 +12,10 @@ const variants = {
 };
 const sizes = { md: '', sm: 'px-3 py-1 text-[13.5px]', lg: 'px-4 py-3 text-base' };
 
-export default function Button({ variant = 'secondary', size = 'md', className = '', type = 'button', ...props }) {
-  return <button type={type} className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...props} />;
+/** Class string shared by <Button> and <ButtonLink> so links can look exactly like buttons. */
+export const buttonClass = ({ variant = 'secondary', size = 'md', className = '' } = {}) =>
+  `${base} ${variants[variant]} ${sizes[size]} ${className}`;
+
+export default function Button({ variant, size, className, type = 'button', ...props }) {
+  return <button type={type} className={buttonClass({ variant, size, className })} {...props} />;
 }

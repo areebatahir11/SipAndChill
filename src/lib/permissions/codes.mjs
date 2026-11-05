@@ -70,7 +70,7 @@ export const ROLE_DEFAULTS = {
   [ROLE_CODES.OWNER]: {
     name: 'Business Owner',
     rank: OWNER_RANK,
-    description: 'Full control of the business: settings, audit log, owners, managers and all staff.',
+    description: 'Full control of the business: settings, managers and all staff. There is only one owner per business.',
     permissions: Object.values(P),
   },
   [ROLE_CODES.MANAGER]: {
@@ -98,10 +98,11 @@ export const ROLE_DEFAULTS = {
 
 /**
  * The one hierarchy rule: you may create/edit/reset/deactivate an account only if its rank
- * is below yours. Owners are the exception: they may also manage other owners.
+ * is below yours. So an owner manages managers and staff, but can never add another owner:
+ * new owners are created only by PearlSolutions (the software owner).
  */
 export function canManageRank(actorRank, targetRank) {
-  return actorRank >= OWNER_RANK ? targetRank <= actorRank : targetRank < actorRank;
+  return targetRank < actorRank;
 }
 
 /** needed: one code, or an array meaning "any of these". */
@@ -111,24 +112,31 @@ export function hasPermission(held, needed) {
   return list.some((code) => held.includes(code));
 }
 
-/** Navigation + routing table. `ready: false` modules are not yet connected to the database. */
+/**
+ * Navigation + routing table. Labels are plain words for shop owners who do not know what a "POS" is;
+ * `hint` is the small line under the label in the sidebar.
+ */
 export const ROUTE_ACCESS = [
-  { href: '/', label: 'Dashboard', any: [P.DASHBOARD_VIEW], ready: false },
-  { href: '/orders', label: 'Orders & counter', any: [P.ORDERS_CREATE, P.ORDERS_VIEW], ready: false },
-  { href: '/products', label: 'Menu items', any: [P.PRODUCTS_VIEW], ready: true },
-  { href: '/categories', label: 'Categories', any: [P.CATEGORIES_VIEW], ready: true },
-  { href: '/ingredients', label: 'Inventory', any: [P.INGREDIENTS_VIEW, P.INVENTORY_VIEW], ready: true },
-  { href: '/suppliers', label: 'Suppliers', any: [P.SUPPLIERS_VIEW], ready: true },
-  { href: '/staff', label: 'Staff & roles', any: [P.USERS_VIEW], ready: true },
-  { href: '/settings', label: 'Business settings', any: [P.SETTINGS_MANAGE], ready: true },
+  { href: '/', label: 'Sales Summary', hint: 'Today and past days', any: [P.DASHBOARD_VIEW] },
+  { href: '/pos', label: 'Take Orders', hint: 'Sell at the counter', any: [P.ORDERS_CREATE] },
+  { href: '/orders', label: 'Orders & Receipts', hint: 'All orders taken', any: [P.ORDERS_VIEW] },
+  // Printer setup lives inside Take Orders / Orders & Receipts (a "Printer" button), so it is not a sidebar heading.
+  // The page itself still exists for old links and the "Connect one" link on the receipt page.
+  { href: '/printer', label: 'Receipt Printer', hint: 'Connect your thermal printer', any: [P.RECEIPTS_PRINT], menu: false },
+  { href: '/products', label: 'Menu & Prices', hint: 'What you sell', any: [P.PRODUCTS_VIEW] },
+  { href: '/categories', label: 'Menu Sections', hint: 'Juices, shakes, coffee…', any: [P.CATEGORIES_VIEW] },
+  { href: '/ingredients', label: 'Stock', hint: 'Ingredients, cups, supplies', any: [P.INGREDIENTS_VIEW, P.INVENTORY_VIEW] },
+  { href: '/suppliers', label: 'Suppliers', hint: 'Who you buy from', any: [P.SUPPLIERS_VIEW] },
+  { href: '/staff', label: 'My Team', hint: 'Managers and staff logins', any: [P.USERS_VIEW] },
+  { href: '/settings', label: 'Shop Settings', hint: 'Name, phone, receipt', any: [P.SETTINGS_MANAGE] },
 ];
 
 /** First finished page this user may open: used after login and when access is denied. */
-const LANDING_PRIORITY = ['/', '/orders', '/ingredients', '/products', '/categories', '/suppliers', '/staff', '/settings'];
+const LANDING_PRIORITY = ['/', '/pos', '/orders', '/ingredients', '/products', '/categories', '/suppliers', '/staff', '/settings'];
 export function homeFor(held) {
   for (const href of LANDING_PRIORITY) {
     const route = ROUTE_ACCESS.find((r) => r.href === href);
-    if (route && route.ready && hasPermission(held, route.any)) return href;
+    if (route && hasPermission(held, route.any)) return href;
   }
   return '/account'; // every signed-in user can open their account page
 }

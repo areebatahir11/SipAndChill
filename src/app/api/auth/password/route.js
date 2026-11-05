@@ -4,7 +4,7 @@ import { changePasswordSchema } from '@/lib/validation/auth';
 import { changeOwnPassword } from '@/modules/auth/service';
 
 export const POST = handle(async (request) => {
-  const auth = await requireApi(request);
+  const auth = await requireApi(request, undefined, { allowPasswordChange: true });
   await changeOwnPassword(auth, changePasswordSchema.parse(await readJson(request)));
   return ok({ updated: true });
 });

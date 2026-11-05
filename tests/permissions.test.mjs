@@ -53,10 +53,10 @@ test('ranks form a hierarchy: owner > manager > cashier = inventory staff', () =
   assert.equal(r(ROLE_CODES.CASHIER), r(ROLE_CODES.INVENTORY_STAFF));
 });
 
-test('canManageRank: flow moves downward only; owners may manage other owners', () => {
+test('canManageRank: flow moves downward only; nobody manages their own level, so an owner never adds another owner', () => {
   const r = (c) => ROLE_DEFAULTS[c].rank;
   assert.equal(canManageRank(r(ROLE_CODES.OWNER), r(ROLE_CODES.MANAGER)), true);
-  assert.equal(canManageRank(r(ROLE_CODES.OWNER), r(ROLE_CODES.OWNER)), true);
+  assert.equal(canManageRank(r(ROLE_CODES.OWNER), r(ROLE_CODES.OWNER)), false);
   assert.equal(canManageRank(r(ROLE_CODES.MANAGER), r(ROLE_CODES.CASHIER)), true);
   assert.equal(canManageRank(r(ROLE_CODES.MANAGER), r(ROLE_CODES.MANAGER)), false); // peers
   assert.equal(canManageRank(r(ROLE_CODES.MANAGER), r(ROLE_CODES.OWNER)), false);   // no escalation
@@ -65,15 +65,15 @@ test('canManageRank: flow moves downward only; owners may manage other owners', 
 });
 
 test('landing page is always a finished page the role may open, else /account', () => {
-  assert.equal(homeFor(perms(ROLE_CODES.OWNER)), '/ingredients');
-  assert.equal(homeFor(perms(ROLE_CODES.MANAGER)), '/ingredients');
-  assert.equal(homeFor(perms(ROLE_CODES.CASHIER)), '/products'); // read-only menu until the POS arrives in Step 5
+  assert.equal(homeFor(perms(ROLE_CODES.OWNER)), '/');
+  assert.equal(homeFor(perms(ROLE_CODES.MANAGER)), '/');
+  assert.equal(homeFor(perms(ROLE_CODES.CASHIER)), '/pos'); // cashier lands straight on the counter
   assert.equal(homeFor(perms(ROLE_CODES.INVENTORY_STAFF)), '/ingredients');
   assert.equal(homeFor([]), '/account');
   for (const role of Object.keys(ROLE_DEFAULTS)) {
     const home = homeFor(perms(role));
     const route = ROUTE_ACCESS.find((x) => x.href === home);
-    assert.ok(home === '/account' || (route.ready && hasPermission(perms(role), route.any)));
+    assert.ok(home === '/account' || hasPermission(perms(role), route.any));
   }
 });
 
@@ -90,4 +90,27 @@ test('menu: only owner and manager manage menu and recipes; inventory staff may 
   assert.ok(perms(ROLE_CODES.INVENTORY_STAFF).includes(P.RECIPES_VIEW));
   for (const no of [P.PRODUCTS_MANAGE, P.RECIPES_MANAGE]) assert.ok(!perms(ROLE_CODES.INVENTORY_STAFF).includes(no), no);
   for (const no of [P.RECIPES_VIEW, P.RECIPES_MANAGE, P.PRODUCTS_MANAGE]) assert.ok(!perms(ROLE_CODES.CASHIER).includes(no), no);
+});
+
+test('POS and order routes: cashier sees counter + orders; inventory staff see neither', () => {
+  const can = (role, href) => hasPermission(perms(role), ROUTE_ACCESS.find((r) => r.href === href).any);
+  assert.ok(can(ROLE_CODES.CASHIER, '/pos') && can(ROLE_CODES.CASHIER, '/orders'));
+  assert.ok(!can(ROLE_CODES.CASHIER, '/') && !can(ROLE_CODES.CASHIER, '/staff'));
+  assert.ok(!can(ROLE_CODES.INVENTORY_STAFF, '/pos') && !can(ROLE_CODES.INVENTORY_STAFF, '/orders') && !can(ROLE_CODES.INVENTORY_STAFF, '/'));
+});
+
+test('cancelling orders and viewing reports is manager-level; cashier cannot cancel', () => {
+  assert.ok(!perms(ROLE_CODES.CASHIER).includes(P.ORDERS_CANCEL));
+  for (const role of [ROLE_CODES.OWNER, ROLE_CODES.MANAGER]) assert.ok(perms(role).includes(P.ORDERS_CANCEL) && perms(role).includes(P.REPORTS_VIEW));
+});
+
+test('every sidebar entry has a plain label and hint', () => {
+  for (const r of ROUTE_ACCESS) assert.ok(r.label && r.hint, r.href);
+});
+
+test('printer setup is not a sidebar heading (it opens from the Printer button), but the /printer page keeps its permission', () => {
+  const printer = ROUTE_ACCESS.find((r) => r.href === '/printer');
+  assert.equal(printer.menu, false);
+  assert.deepEqual(printer.any, [P.RECEIPTS_PRINT]);
+  assert.ok(ROUTE_ACCESS.filter((r) => r.menu !== false).every((r) => r.href !== '/printer'));
 });

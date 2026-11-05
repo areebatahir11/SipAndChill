@@ -3,6 +3,7 @@ const tones = {
   neutral: 'bg-slate text-sand',
   ok: 'bg-sand text-night before:content-["✓"] before:font-bold',
   off: 'bg-peach text-graphite before:content-["–"] before:font-bold',
+  alert: 'bg-graphite text-blush before:content-["!"] before:font-bold',
 };
 
 export default function Pill({ tone = 'neutral', children }) {

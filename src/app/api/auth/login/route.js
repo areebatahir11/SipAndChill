@@ -6,9 +6,9 @@ import { login } from '@/modules/auth/service';
 export const POST = handle(async (request) => {
   assertSameOrigin(request);
   const input = loginSchema.parse(await readJson(request));
-  await login(input, {
+  const { redirectTo } = await login(input, {
     ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null,
     userAgent: request.headers.get('user-agent'),
   });
-  return ok({ signedIn: true });
+  return ok({ signedIn: true, redirectTo });
 });

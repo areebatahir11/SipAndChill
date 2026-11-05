@@ -66,11 +66,14 @@ export async function updateProduct(auth, id, data, withRecipe) {
   }
 }
 
-/** Step 5 will archive instead of delete when a product already appears on past orders. */
+/** A product that already appears on orders is archived (hidden from the POS, kept for reports); an untouched one is deleted. */
 export async function deleteProduct(auth, id) {
   const p = await findProduct(auth.tenantId, id);
-  await prisma.product.delete({ where: { id } });
-  await log(auth, 'product.deleted', id, { name: p.name });
+  const sold = await prisma.orderItem.count({ where: { tenantId: auth.tenantId, productId: id } });
+  if (sold > 0) await prisma.product.update({ where: { id }, data: { isActive: false } });
+  else await prisma.product.delete({ where: { id } });
+  await log(auth, sold > 0 ? 'product.archived' : 'product.deleted', id, { name: p.name });
+  return { archived: sold > 0 };
 }
 
 export async function getRecipe(tenantId, productId) {

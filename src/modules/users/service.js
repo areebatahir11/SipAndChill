@@ -2,7 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import { HttpError } from '@/lib/http';
 import { hashPassword } from '@/lib/auth/password';
 import { revokeUserSessions } from '@/lib/auth/session';
-import { ROLE_CODES, canManageRank } from '@/lib/permissions/codes.mjs';
+import { canManageRank } from '@/lib/permissions/codes.mjs';
 import { audit } from '@/modules/auth/audit';
 
 const toStaff = (m) => ({
@@ -41,13 +41,6 @@ function assertCanManage(auth, targetRank, verb) {
   }
 }
 
-async function assertAnotherActiveOwner(tenantId, excludeUserId) {
-  const count = await prisma.membership.count({
-    where: { tenantId, isActive: true, userId: { not: excludeUserId }, role: { code: ROLE_CODES.OWNER }, user: { isActive: true } },
-  });
-  if (count === 0) throw new HttpError(400, 'The business must keep at least one active Business Owner.', 'LAST_ADMIN');
-}
-
 export async function createStaff(auth, { name, email, password, roleCode }) {
   const role = await findRole(roleCode);
   assertCanManage(auth, role.rank, 'create');
@@ -56,7 +49,7 @@ export async function createStaff(auth, { name, email, password, roleCode }) {
   }
   const passwordHash = await hashPassword(password);
   const membership = await prisma.$transaction(async (tx) => {
-    const user = await tx.user.create({ data: { name, email, passwordHash } });
+    const user = await tx.user.create({ data: { name, email, passwordHash, mustChangePassword: true } });
     return tx.membership.create({ data: { tenantId: auth.tenantId, userId: user.id, roleId: role.id }, include });
   });
   await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'staff.created', entity: 'User', entityId: membership.userId, metadata: { email, role: role.code } });
@@ -75,9 +68,6 @@ export async function updateStaff(auth, userId, { name, roleCode, isActive }) {
   if (!isSelf) assertCanManage(auth, member.role.rank, 'change');
   const role = changingRole ? await findRole(roleCode) : null;
   if (role) assertCanManage(auth, role.rank, 'assign');
-  if (member.role.code === ROLE_CODES.OWNER && (changingRole || deactivating)) {
-    await assertAnotherActiveOwner(auth.tenantId, userId);
-  }
 
   const updated = await prisma.$transaction(async (tx) => {
     if (name !== undefined) await tx.user.update({ where: { id: userId }, data: { name } });
@@ -100,7 +90,7 @@ export async function resetStaffPassword(auth, userId, newPassword) {
   if (userId === auth.user.id) throw new HttpError(400, 'Use "My account" to change your own password.', 'SELF_RESET');
   const member = await findMember(auth.tenantId, userId);
   assertCanManage(auth, member.role.rank, 'reset the password of');
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword), failedLoginCount: 0, lockedUntil: null } });
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword), mustChangePassword: true, failedLoginCount: 0, lockedUntil: null } });
   await revokeUserSessions(userId);
   await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'staff.password_reset', entity: 'User', entityId: userId });
 }
