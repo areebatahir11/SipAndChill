@@ -12,6 +12,9 @@ export function prismaFailure(err) {
     case 'P2025': return { status: 404, code: 'NOT_FOUND', message: 'That record was not found. It may have been removed.' };
     case 'P2002': return { status: 409, code: 'DUPLICATE', message: 'That already exists.' };
     case 'P2003': return { status: 409, code: 'IN_USE', message: 'This record is still in use, so the change was not made.' };
+    // The database could not be reached (paused Supabase project, network drop, pooler restart). Not the user's fault: say so plainly.
+    case 'P1001': case 'P1002': case 'P1008': case 'P1017':
+      return { status: 503, code: 'DB_UNAVAILABLE', message: 'The service could not reach its database. Please try again in a few seconds.' };
     default: return null;
   }
 }

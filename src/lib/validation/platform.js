@@ -42,3 +42,5 @@ export const resetOwnerPasswordSchema = z.object({
   userId: z.string().min(1, 'Choose an owner.'),
   newPassword: passwordSchema,
 });
+
+export const signupDecisionSchema = z.object({ decision: z.enum(['approve', 'reject']) });

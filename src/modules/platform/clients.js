@@ -3,10 +3,11 @@ import { HttpError } from '@/lib/http';
 import { hashPassword } from '@/lib/auth/password';
 import { revokeUserSessions } from '@/lib/auth/session';
 import { ROLE_CODES } from '@/lib/permissions/codes.mjs';
-import { BILLING_STATUS } from '@/lib/platform/constants.mjs';
-import { billingLabel } from '@/lib/platform/billing.mjs';
+import { BILLING_STATUS, TENANT_STATUS, TRIAL_DAYS } from '@/lib/platform/constants.mjs';
+import { billingLabel, trialEndDate } from '@/lib/platform/billing.mjs';
 import { audit } from '@/modules/auth/audit';
 import { provisionBusiness } from '@/modules/tenants/provision';
+import { assertBusinessNameFree } from '@/modules/tenants/names';
 
 const ownerMemberships = (take) => ({
   where: { role: { code: ROLE_CODES.OWNER } },
@@ -33,6 +34,7 @@ function toClient(t) {
     businessType: t.businessType,
     currency: t.currency,
     isActive: t.isActive,
+    status: t.status, // ACTIVE | PENDING | REJECTED (see TENANT_STATUS)
     billingStatus: t.billingStatus,
     billing: billingLabel(t),
     monthlyFee: Number(t.monthlyFee),
@@ -85,9 +87,14 @@ export async function createClient(admin, { businessName, businessType, monthlyF
 
 export async function updateClient(admin, id, { businessName, businessType, monthlyFee, dueDate, billingStatus, internalNote, isActive }) {
   const current = await findTenant(id);
+  if (isActive !== undefined && current.status !== TENANT_STATUS.ACTIVE) {
+    throw new HttpError(409, 'This business signed up by itself. Approve or reject the signup instead of suspending or reactivating it.', 'NOT_APPROVED');
+  }
+
+  const nameKey = businessName !== undefined ? await assertBusinessNameFree(businessName, { exceptTenantId: id }) : undefined;
 
   const data = {
-    ...(businessName !== undefined ? { name: businessName } : {}),
+    ...(businessName !== undefined ? { name: businessName, nameKey } : {}),
     ...(businessType !== undefined ? { businessType } : {}),
     ...(monthlyFee !== undefined ? { monthlyFee } : {}),
     ...(dueDate !== undefined ? { dueDate } : {}),
@@ -107,6 +114,28 @@ export async function updateClient(admin, id, { businessName, businessType, mont
   await audit({
     tenantId: id, userId: admin.user.id, action: 'platform.client_updated', entity: 'Tenant', entityId: id,
     metadata: { ...data, dueDate: data.dueDate === undefined ? undefined : data.dueDate?.toISOString() ?? null },
+  });
+  return getClient(id);
+}
+
+/**
+ * Approve or reject a business that signed up by itself. Approving switches it on and starts its free trial
+ * (the first payment is due TRIAL_DAYS from today unless PearlSolutions already set a due date).
+ */
+export async function decideSignup(admin, id, decision) {
+  const current = await findTenant(id);
+  let data;
+  if (decision === 'approve') {
+    if (current.status === TENANT_STATUS.ACTIVE) throw new HttpError(409, 'This business is already approved.', 'ALREADY_APPROVED');
+    data = { status: TENANT_STATUS.ACTIVE, isActive: true, ...(current.dueDate ? {} : { dueDate: trialEndDate(new Date(), TRIAL_DAYS) }) };
+  } else {
+    if (current.status !== TENANT_STATUS.PENDING) throw new HttpError(409, 'Only a signup that is waiting for approval can be rejected.', 'NOT_PENDING');
+    data = { status: TENANT_STATUS.REJECTED, isActive: false };
+  }
+  await prisma.tenant.update({ where: { id }, data });
+  await audit({
+    tenantId: id, userId: admin.user.id, action: decision === 'approve' ? 'platform.signup_approved' : 'platform.signup_rejected',
+    entity: 'Tenant', entityId: id, metadata: { name: current.name },
   });
   return getClient(id);
 }

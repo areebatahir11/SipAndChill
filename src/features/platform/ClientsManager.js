@@ -9,7 +9,8 @@ import { AccessPill, BillingPill } from './ClientPills';
 import CreateClientDialog from './CreateClientDialog';
 
 const BILLING_FILTERS = [['', 'All billing'], ['PAID', 'Paid'], ['UNPAID', 'Unpaid (incl. overdue)']];
-const ACCESS_FILTERS = [['', 'All access'], ['active', 'Active'], ['suspended', 'Suspended']];
+const ACCESS_FILTERS = [['', 'All access'], ['pending', 'Pending approval'], ['active', 'Active'], ['suspended', 'Suspended'], ['rejected', 'Rejected']];
+const accessOf = (c) => (c.status && c.status !== 'ACTIVE' ? c.status.toLowerCase() : c.isActive ? 'active' : 'suspended');
 
 export default function ClientsManager() {
   const [clients, setClients] = useState(null);
@@ -29,7 +30,7 @@ export default function ClientsManager() {
     return (clients || []).filter((c) =>
       (!needle || `${c.name} ${c.slug} ${c.owner?.email || ''} ${c.owner?.name || ''}`.toLowerCase().includes(needle)) &&
       (!billing || c.billingStatus === billing) &&
-      (!access || (access === 'active') === c.isActive));
+      (!access || accessOf(c) === access));
   }, [clients, q, billing, access]);
 
   return (

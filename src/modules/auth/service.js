@@ -2,9 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import { HttpError } from '@/lib/http';
 import { hashPassword, verifyPassword, DUMMY_HASH } from '@/lib/auth/password';
 import { createSession, revokeUserSessions } from '@/lib/auth/session';
-import { TRIAL_DAYS } from '@/lib/platform/constants.mjs';
-import { trialEndDate } from '@/lib/platform/billing.mjs';
-import { provisionBusiness } from '@/modules/tenants/provision';
+import { TENANT_STATUS } from '@/lib/platform/constants.mjs';
 import { audit } from './audit';
 
 const MAX_FAILED = 5;
@@ -14,7 +12,7 @@ const INVALID = 'Email or password is incorrect.';
 export async function login({ email, password }, meta) {
   const user = await prisma.user.findUnique({
     where: { email },
-    include: { memberships: { where: { isActive: true, tenant: { isActive: true } }, orderBy: { createdAt: 'asc' } } },
+    include: { memberships: { where: { isActive: true, tenant: { isActive: true, status: TENANT_STATUS.ACTIVE } }, orderBy: { createdAt: 'asc' } } },
   });
 
   if (user?.lockedUntil && user.lockedUntil > new Date()) {
@@ -35,14 +33,27 @@ export async function login({ email, password }, meta) {
   }
 
   const membership = user.memberships[0];
-  if (!membership) throw new HttpError(403, 'This account has no active business access.', 'NO_MEMBERSHIP');
+  if (!membership) {
+    // Password was correct, so it is safe to say why: a signup that is still waiting for approval, or was declined.
+    const waiting = await prisma.membership.findFirst({
+      where: { userId: user.id, isActive: true, tenant: { status: { not: TENANT_STATUS.ACTIVE } } },
+      select: { tenant: { select: { status: true } } },
+    });
+    if (waiting?.tenant.status === TENANT_STATUS.PENDING) {
+      throw new HttpError(403, 'Your business account is waiting for approval. We will email you as soon as it is approved.', 'PENDING_APPROVAL');
+    }
+    if (waiting?.tenant.status === TENANT_STATUS.REJECTED) {
+      throw new HttpError(403, 'Your signup was not approved. Please contact PearlSolutions.', 'SIGNUP_REJECTED');
+    }
+    throw new HttpError(403, 'This account has no active business access.', 'NO_MEMBERSHIP');
+  }
 
   await startSession(user, membership.id, meta);
   await audit({ tenantId: membership.tenantId, userId: user.id, action: 'auth.login', entity: 'User', entityId: user.id });
   return { redirectTo: '/' }; // the server then sends each role to its own first page
 }
 
-async function startSession(user, membershipId, meta) {
+export async function startSession(user, membershipId, meta) {
   await prisma.user.update({ where: { id: user.id }, data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() } });
   await prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }); // housekeeping
   await createSession({ userId: user.id, membershipId, ...meta });
@@ -72,19 +83,4 @@ export async function changeOwnPassword(auth, { currentPassword, newPassword }) 
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(newPassword), mustChangePassword: false } });
   await revokeUserSessions(user.id, auth.sessionId); // sign out every other device
   await audit({ tenantId: auth.tenantId, userId: user.id, action: 'auth.password_changed', entity: 'User', entityId: user.id });
-}
-
-/**
- * Public self-serve signup: creates the business with the signer as its single Business Owner, starts their
- * free trial (first payment due after TRIAL_DAYS) and signs them in. They chose the password, so no forced change.
- */
-export async function signup({ businessName, businessType, ownerName, email, password }, meta) {
-  const { tenantId, userId, membershipId, slug } = await provisionBusiness({
-    businessName, businessType,
-    dueDate: trialEndDate(new Date(), TRIAL_DAYS),
-    owner: { name: ownerName, email, passwordHash: await hashPassword(password) },
-  });
-  await startSession({ id: userId }, membershipId, meta);
-  await audit({ tenantId, userId, action: 'auth.signup', entity: 'Tenant', entityId: tenantId, metadata: { slug, businessType } });
-  return { redirectTo: '/' };
 }

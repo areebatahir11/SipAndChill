@@ -16,9 +16,11 @@ model Tenant {
   id           String   @id @default(cuid())
   name         String
   slug         String   @unique
+  nameKey      String?  @unique // businessNameKey(name): one business per name, ignoring case/punctuation/"&". Null only for legacy duplicates.
   businessType String   @default("JUICE_SHOP") // future: COFFEE_SHOP, ICE_CREAM_SHOP
   currency     String   @default("PKR")
   isActive     Boolean  @default(true) // false = suspended by PearlSolutions: nobody of this client can sign in
+  status       String   @default("ACTIVE") // ACTIVE | PENDING (signed up, waiting for PearlSolutions approval) | REJECTED. Pending/rejected tenants also have isActive = false.
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -34,6 +36,7 @@ model Tenant {
   logoUpdatedAt DateTime?
 
   logo           TenantLogo?
+  termsAcceptances TermsAcceptance[]
   memberships    Membership[]
   auditLogs      AuditLog[]
   settings       TenantSettings?
@@ -86,6 +89,7 @@ model User {
   memberships Membership[]
   sessions    Session[]
   passwordResetOtps PasswordResetOtp[]
+  termsAcceptances  TermsAcceptance[]
   auditLogs   AuditLog[]
   stockMovements StockMovement[]
   orders         Order[]
@@ -181,6 +185,49 @@ model PasswordResetOtp {
 
   @@index([userId, createdAt])
   @@index([expiresAt])
+}
+
+// A public signup that has not verified its email yet. No Tenant/User exists until the 6-digit code is confirmed, so
+// bots and mistyped emails never create junk businesses. One row per email; a new request replaces the old one.
+// Holds a password HASH, so this table must stay locked by RLS (prisma/supabase-rls.sql).
+model SignupRequest {
+  id              String   @id @default(cuid())
+  email           String   @unique
+  businessName    String
+  nameKey         String?
+  businessType    String
+  ownerName       String
+  passwordHash    String
+  otpHash         String
+  attempts        Int      @default(0)
+  expiresAt       DateTime
+  sendCount       Int      @default(1) // codes sent inside the current hour window
+  windowStartedAt DateTime
+  lastSentAt      DateTime
+  ipAddress       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ipAddress, updatedAt])
+  @@index([expiresAt])
+  @@index([nameKey])
+}
+
+// Proof that a business owner accepted a version of the Terms & Conditions (kept forever as evidence).
+model TermsAcceptance {
+  id         String   @id @default(cuid())
+  userId     String
+  tenantId   String
+  version    String
+  acceptedAt DateTime @default(now())
+  ipAddress  String?
+  userAgent  String?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, version])
+  @@index([tenantId])
 }
 
 model AuditLog {

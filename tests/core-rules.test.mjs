@@ -297,7 +297,7 @@ test('.env.example carries placeholders only (no real host, project id or passwo
 });
 
 test('every API route is wrapped in handle() and guarded (public routes are explicitly listed)', () => {
-  const PUBLIC = new Set(['auth/login', 'auth/logout', 'auth/signup', 'auth/password/forgot', 'auth/password/reset']);
+  const PUBLIC = new Set(['auth/login', 'auth/logout', 'auth/signup', 'auth/signup/verify', 'auth/password/forgot', 'auth/password/reset']);
   const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : e.name === 'route.js' ? [path.join(dir, e.name)] : []));
   const base = path.join(ROOT, 'src/app/api');
   const routes = walk(base);

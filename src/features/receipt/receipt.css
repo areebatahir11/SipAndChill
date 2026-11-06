@@ -1,25 +1,32 @@
-/* Thermal receipt. Printable width is a little narrower than the paper: 58mm paper ~ 48mm, 80mm paper ~ 72mm. */
+/* Thermal receipt.
+   Printers cannot print on the whole paper: 58mm paper prints about 48mm, 80mm paper about 72mm, and many drivers shave off a bit more.
+   So the receipt is drawn clearly INSIDE that area (44mm / 68mm). --receipt-trim lets the cashier make it narrower or wider on this
+   device (PrintControls "Narrower / Wider") if the right edge is still cut. */
 .receipt-page { min-height: 100vh; background: #e9e4dc; padding: 16px; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 520px; margin: 0 auto 16px; }
 .toolbar .hint { flex-basis: 100%; margin: 0; color: #4a4a4a; font-size: 13px; }
 
-.receipt { margin: 0 auto; background: #fff; color: #000; padding: 4mm 2mm; box-shadow: 0 2px 10px rgba(0,0,0,.2);
+.receipt { margin: 0 auto; background: #fff; color: #000; padding: 4mm 2mm; box-shadow: 0 2px 10px rgba(0,0,0,.2); box-sizing: border-box;
   font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace; font-size: 12px; line-height: 1.35; }
-.receipt.w58 { width: 48mm; font-size: 11px; }
-.receipt.w80 { width: 72mm; }
+.receipt.w58 { width: calc(44mm + var(--receipt-trim, 0mm)); font-size: 10px; }
+.receipt.w80 { width: calc(68mm + var(--receipt-trim, 0mm)); }
 .receipt hr { border: 0; border-top: 1px dashed #000; margin: 6px 0; }
-.receipt .center { text-align: center; }
-.receipt .biz { margin: 0 0 2px; font-size: 1.35em; font-weight: 700; }
+.receipt .center { text-align: center; overflow-wrap: anywhere; }
+.receipt .biz { margin: 0 0 2px; font-size: 1.35em; font-weight: 700; overflow-wrap: anywhere; }
 .receipt .banner { font-weight: 700; margin-bottom: 4px; }
-.receipt .meta > div, .receipt .row { display: flex; justify-content: space-between; gap: 6px; }
+/* Left text may wrap, the right-hand value (amount, date) never wraps and is never pushed out of the paper. */
+.receipt .meta > div, .receipt .row { display: flex; justify-content: space-between; gap: 4px; }
+.receipt .row > :first-child, .receipt .meta > div > :first-child { min-width: 0; overflow-wrap: anywhere; }
+.receipt .row > :last-child, .receipt .meta > div > :last-child { flex: none; white-space: nowrap; text-align: right; }
 .receipt .item { margin-bottom: 4px; break-inside: avoid; }
 .receipt .item .name { font-weight: 700; overflow-wrap: anywhere; }
 .receipt .grand { font-size: 1.25em; font-weight: 700; margin: 3px 0; }
 
 @media print {
-  html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+  /* Height must follow the receipt, never the screen: a leftover 100vh / min-height makes the printer feed a long blank strip or a second slip. */
+  html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; height: auto !important; min-height: 0 !important; }
   .no-print { display: none !important; }
-  .receipt-page { min-height: 0; padding: 0; background: #fff; }
-  .receipt { margin: 0; box-shadow: none; padding: 2mm 1mm; }
+  .receipt-page { min-height: 0 !important; height: auto; padding: 0; background: #fff; }
+  .receipt { margin: 0; box-shadow: none; padding: 2mm 1mm 0; break-inside: avoid; }
   .receipt, .receipt * { color: #000 !important; }
 }

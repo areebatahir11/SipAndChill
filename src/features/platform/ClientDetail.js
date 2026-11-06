@@ -31,7 +31,7 @@ function Facts({ title, rows }) {
 export default function ClientDetail({ id }) {
   const [client, setClient] = useState(null);
   const [loadError, setLoadError] = useState('');
-  const [dialog, setDialog] = useState(null); // { type: 'edit' | 'billing' | 'suspend' | 'password', owner? }
+  const [dialog, setDialog] = useState(null); // { type: 'edit' | 'billing' | 'suspend' | 'approve' | 'reject' | 'password', owner? }
   const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
@@ -45,6 +45,12 @@ export default function ClientDetail({ id }) {
   const toggleAccess = useSubmit(async () => {
     await api(`/api/platform/clients/${id}`, { method: 'PATCH', body: { isActive: !client.isActive } });
     saved(client.isActive ? 'Client suspended. Everyone was signed out.' : 'Client reactivated.');
+  });
+
+  const decide = useSubmit(async () => {
+    const approve = dialog.type === 'approve';
+    await api(`/api/platform/clients/${id}/approval`, { method: 'POST', body: { decision: approve ? 'approve' : 'reject' } });
+    saved(approve ? 'Approved. The owner was emailed and can sign in now.' : 'Signup rejected. The owner was emailed.');
   });
 
   if (!client) {
@@ -65,9 +71,14 @@ export default function ClientDetail({ id }) {
         <AccessPill client={client} />
         <Button variant="ghost" onClick={() => setDialog({ type: 'edit' })}>Edit details</Button>
         <Button variant="primary" onClick={() => setDialog({ type: 'billing' })}>Update billing</Button>
-        <Button variant={client.isActive ? 'danger' : 'accent'} onClick={() => setDialog({ type: 'suspend' })}>
-          {client.isActive ? 'Suspend' : 'Reactivate'}
-        </Button>
+        {client.status === 'PENDING' && <Button variant="danger" onClick={() => setDialog({ type: 'reject' })}>Reject</Button>}
+        {client.status !== 'ACTIVE' ? (
+          <Button variant="accent" onClick={() => setDialog({ type: 'approve' })}>Approve signup</Button>
+        ) : (
+          <Button variant={client.isActive ? 'danger' : 'accent'} onClick={() => setDialog({ type: 'suspend' })}>
+            {client.isActive ? 'Suspend' : 'Reactivate'}
+          </Button>
+        )}
       </PageHeader>
       {notice && <Alert tone="success" className="mb-4">{notice}</Alert>}
       {loadError && <Alert className="mb-4">{loadError}</Alert>}
@@ -113,6 +124,21 @@ export default function ClientDetail({ id }) {
       {dialog?.type === 'billing' && <BillingDialog client={client} onSaved={() => saved('Billing updated.')} onClose={close} />}
       {dialog?.type === 'password' && (
         <ResetOwnerPasswordDialog clientId={id} owner={dialog.owner} onSaved={() => saved(`Password reset for ${dialog.owner.name}. They were signed out everywhere.`)} onClose={close} />
+      )}
+      {(dialog?.type === 'approve' || dialog?.type === 'reject') && (
+        <ConfirmDialog
+          title={dialog.type === 'approve' ? `Approve ${client.name}?` : `Reject ${client.name}?`}
+          confirmLabel={dialog.type === 'approve' ? 'Approve' : 'Reject'}
+          danger={dialog.type === 'reject'}
+          busy={decide.busy}
+          error={decide.error}
+          onConfirm={decide.submit}
+          onClose={close}
+        >
+          {dialog.type === 'approve'
+            ? 'The owner can sign in right away and their free trial starts today. They will get an email, and must accept the Terms & Conditions on first sign-in.'
+            : 'The owner will not be able to sign in and will get an email saying the signup was not approved. You can still approve it later.'}
+        </ConfirmDialog>
       )}
       {dialog?.type === 'suspend' && (
         <ConfirmDialog

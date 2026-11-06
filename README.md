@@ -48,6 +48,25 @@ Owner 100 > Manager 70 > Cashier / Inventory Staff 30. You manage only accounts 
   `POST /api/platform/clients/:id/owner-password`, `GET /api/platform/stats`, `POST /api/platform/account/password`.
 - Pure rules (overdue, totals, slugs, password generator) live in `src/lib/platform/*.mjs` and are covered by `tests/platform.test.mjs`.
 
+## Signup, approval and Terms & Conditions
+`SIGNUP_MODE` (env) chooses how a business can join: `approval` (default), `open` or `invite_only` (see `.env.example`).
+- **Signup is two steps.** `POST /api/auth/signup` validates the form and emails a 6-digit code (stored hashed in `SignupRequest`;
+  nothing else is created). `POST /api/auth/signup/verify` confirms the code and only then creates the business + owner
+  (`src/modules/auth/signup.js` -> `provisionBusiness`). Limits (60 s between codes, 5 per hour, 5 wrong guesses, 10 per IP per hour)
+  are kept in the database, so they hold on Vercel. Rules are pure and tested in `tests/signup-policy.test.mjs`.
+- **CAPTCHA:** signup (`POST /api/auth/signup`) is protected by Cloudflare Turnstile (`src/lib/security/turnstile.mjs`, widget in
+  `src/components/security/Turnstile.js`). Set `NEXT_PUBLIC_TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`; with the secret empty the check is skipped.
+  The token is single-use, so the form fetches a fresh one before every send (including "Send a new code").
+- **Approval mode:** the business is created with `Tenant.status = PENDING` and `isActive = false`; the owner cannot sign in
+  (login says it is waiting for approval) and PearlSolutions is emailed. In `/platform` (Overview + My Clients, filter "Pending approval")
+  open the client and press **Approve signup** (switches it on, starts the free trial today, emails the owner) or **Reject**.
+  `status` is separate from `isActive`: Suspend/Reactivate only apply to approved businesses.
+- **Terms & Conditions:** text and version live in `src/lib/legal/terms.mjs`. A Business Owner who has not accepted the current
+  `TERMS_VERSION` sees only the terms screen (dashboard layout) and every API except `POST /api/terms/accept` refuses them
+  (`requireApi`, code `TERMS_REQUIRED`). Acceptances are stored in `TermsAcceptance` (user, version, time, IP, browser).
+  To publish new terms, edit the text and change `TERMS_VERSION`: every owner must accept again. A public copy is at `/terms`.
+- **Supabase:** after `prisma migrate` run `prisma/supabase-rls.sql` again. `SignupRequest` holds password hashes and must be locked.
+
 ## POS, payments, receipts, dashboard (Steps 5, 6, 7)
 
 **Pages:** `/pos` (counter), `/orders` (history + filters), `/orders/:id` (detail, take payment, cancel),

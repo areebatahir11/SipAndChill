@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { prisma } from '@/lib/db/prisma';
+import { TENANT_STATUS } from '@/lib/platform/constants.mjs';
+import { TERMS_VERSION, termsRequired } from '@/lib/legal/terms.mjs';
 
 export const SESSION_COOKIE = 'sc_session';
 const SESSION_DAYS = 7;
@@ -41,7 +43,7 @@ async function loadSession() {
   const session = await prisma.session.findUnique({
     where: { tokenHash: hashToken(token) },
     include: {
-      user: true,
+      user: { include: { termsAcceptances: { select: { version: true } } } },
       membership: {
         include: { tenant: true, role: { include: { permissions: { include: { permission: true } } } } },
       },
@@ -59,7 +61,7 @@ async function loadSession() {
 export async function resolveSession() {
   const session = await loadSession();
   const membership = session?.membership;
-  if (!membership || !membership.isActive || !membership.tenant.isActive) return null;
+  if (!membership || !membership.isActive || !membership.tenant.isActive || membership.tenant.status !== TENANT_STATUS.ACTIVE) return null;
   const { user } = session;
 
   return {
@@ -68,6 +70,8 @@ export async function resolveSession() {
     tenantId: membership.tenantId,
     user: { id: user.id, name: user.name, email: user.email },
     mustChangePassword: user.mustChangePassword,
+    // The Business Owner must accept the current Terms & Conditions before anything else opens.
+    termsRequired: termsRequired({ roleCode: membership.role.code, acceptedVersions: user.termsAcceptances.map((a) => a.version) }, TERMS_VERSION),
     tenant: {
       id: membership.tenant.id, name: membership.tenant.name, currency: membership.tenant.currency,
       logoVersion: membership.tenant.logoUpdatedAt ? membership.tenant.logoUpdatedAt.getTime() : null, // null = no logo

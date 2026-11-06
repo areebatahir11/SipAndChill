@@ -31,6 +31,7 @@ export default function PlatformDashboard() {
       {s && (
         <>
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+            {data.pendingCount > 0 && <StatCard label="Waiting for approval" value={data.pendingCount} hint="new signups" />}
             <StatCard label="Total clients" value={s.total} hint={`${s.active} running`} />
             <StatCard label="Paid" value={s.paid} hint="clients who paid" />
             <StatCard label="Not paid" value={s.unpaid} hint={s.overdue ? `${s.overdue} late` : 'none late'} />
@@ -38,6 +39,22 @@ export default function PlatformDashboard() {
             <StatCard label="Money received" value={money(s.monthlyRevenue)} hint="monthly fees paid" />
             <StatCard label="Money still to receive" value={money(s.outstanding)} hint="monthly fees not paid yet" />
           </div>
+
+          {data.pendingCount > 0 && (
+            <>
+              <h2 className="mb-3.5 mt-9 text-xl font-semibold">Signups waiting for approval</h2>
+              <DataTable head={['Business', 'Owner', 'Signed up', '']}>
+                {data.pending.map((c) => (
+                  <tr key={c.id}>
+                    <Td className="whitespace-nowrap"><ClientLink client={c} /></Td>
+                    <Td className="whitespace-nowrap">{c.owner ? <>{c.owner.name}<small className="block text-graphite">{c.owner.email}</small></> : '—'}</Td>
+                    <Td className="whitespace-nowrap">{dateOnly(c.createdAt)}</Td>
+                    <Td className="text-right"><ButtonLink size="sm" variant="accent" href={`/platform/clients/${c.id}`}>Review</ButtonLink></Td>
+                  </tr>
+                ))}
+              </DataTable>
+            </>
+          )}
 
           <h2 className="mb-3.5 mt-9 text-xl font-semibold">Clients who have not paid</h2>
           <DataTable

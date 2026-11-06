@@ -1,13 +1,30 @@
 'use client';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import usePrinter from '@/features/printing/usePrinter';
 import { receiptToEscPos } from '@/lib/printing/escpos.mjs';
+
+const TRIM_KEY = 'sipchill.receipt.trim.v1';
+const TRIM_STEP = 2, TRIM_MIN = -12, TRIM_MAX = 6; // millimetres
+
+/** Remembered on this device only: printers differ in how much of the paper they really print. */
+function useReceiptTrim() {
+  const [trim, setTrim] = useState(0);
+  useEffect(() => { try { setTrim(Number(localStorage.getItem(TRIM_KEY)) || 0); } catch { /* private mode: default */ } }, []);
+  useEffect(() => { document.documentElement.style.setProperty('--receipt-trim', `${trim}mm`); }, [trim]);
+  const change = (d) => setTrim((t) => {
+    const next = Math.min(Math.max(t + d, TRIM_MIN), TRIM_MAX);
+    try { localStorage.setItem(TRIM_KEY, String(next)); } catch { /* keep in memory */ }
+    return next;
+  });
+  return [trim, change];
+}
 
 /** On-screen toolbar. Hidden when printing (see .no-print in receipt.css). */
 export default function PrintControls({ orderId, width, autoprint, model }) {
   const { config, direct, status, hydrated, api: printer } = usePrinter();
   const fired = useRef(false);
+  const [trim, changeTrim] = useReceiptTrim();
 
   // Printing paper estimate for this very receipt (same bytes the printer would get).
   const paper = useMemo(() => receiptToEscPos(model, { paper: width }), [model, width]);
@@ -47,6 +64,10 @@ export default function PrintControls({ orderId, width, autoprint, model }) {
           <Link key={w} href={`/orders/${orderId}/receipt?w=${w}`} replace aria-current={w === width ? 'true' : undefined} className={`${btn} ${w === width ? 'border-night bg-sand font-semibold' : 'border-peach bg-white'}`}>{w} mm</Link>
         ))}
       </span>
+      <span role="group" aria-label="Receipt fit" className="inline-flex items-center gap-1">
+        <button type="button" className={`${btn} border-peach bg-white`} disabled={trim <= TRIM_MIN} onClick={() => changeTrim(-TRIM_STEP)} title="Use this if the right side of the slip is cut off">Narrower</button>
+        <button type="button" className={`${btn} border-peach bg-white`} disabled={trim >= TRIM_MAX} onClick={() => changeTrim(TRIM_STEP)}>Wider</button>
+      </span>
       <Link href={`/orders/${orderId}`} className={`${btn} border-peach bg-white`}>Back to order</Link>
 
       {status.message && <p role={status.state === 'error' ? 'alert' : 'status'} className="hint" style={{ fontWeight: 600 }}>{status.message}</p>}
@@ -54,7 +75,7 @@ export default function PrintControls({ orderId, width, autoprint, model }) {
         This receipt uses about {(paper.lengthMm / 10).toFixed(1)} cm of paper (a roll gives roughly {paper.receiptsPerRoll} like it).
         {direct
           ? ` Sending to: ${printer.deviceLabel(config)}.`
-          : <> No receipt printer connected on this device. <Link href="/printer" className="underline">Connect one</Link> for one-click printing, or use the print dialog: choose your thermal printer, margins “None”, scale 100%.</>}
+          : <> No receipt printer connected on this device. <Link href="/printer" className="underline">Connect one</Link> for one-click printing, or use the print dialog: choose your thermal printer, paper size = roll paper of the same width (not A4), margins “None”, scale 100%. Right side cut off? Press “Narrower”.</>}
       </p>
     </div>
   );

@@ -20,12 +20,14 @@ export function assertSameOrigin(request) {
  * API guard. Usage:  const auth = await requireApi(request, PERMISSIONS.USERS_MANAGE)
  * `needed` may be a code or an array (any-of). Throws 401/403 HttpError.
  * While a user still has a temporary password, every API except the change-password one is blocked.
+ * Likewise a Business Owner who has not accepted the current Terms & Conditions can only call the accept-terms API.
  */
-export async function requireApi(request, needed, { allowPasswordChange = false } = {}) {
+export async function requireApi(request, needed, { allowPasswordChange = false, allowTerms = false } = {}) {
   if (!['GET', 'HEAD'].includes(request.method)) assertSameOrigin(request);
   const auth = await resolveSession();
   if (!auth) throw new HttpError(401, 'Please sign in.', 'UNAUTHENTICATED');
   if (auth.mustChangePassword && !allowPasswordChange) throw new HttpError(403, 'Please choose your own password first.', 'PASSWORD_CHANGE_REQUIRED');
+  if (auth.termsRequired && !allowTerms) throw new HttpError(403, 'Please accept the Terms & Conditions first.', 'TERMS_REQUIRED');
   if (!hasPermission(auth.permissions, needed)) throw new HttpError(403, 'You do not have permission to do that.', 'FORBIDDEN');
   return auth;
 }

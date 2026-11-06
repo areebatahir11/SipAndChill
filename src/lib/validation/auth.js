@@ -30,8 +30,19 @@ export const signupSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   website: z.string().max(200).optional(),
+  turnstileToken: z.string().max(2048).nullish(), // Cloudflare Turnstile result; checked in the route when TURNSTILE_SECRET_KEY is set
 });
 
+
+export const signupVerifySchema = z.object({
+  email: emailSchema,
+  otp: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code.'),
+});
+
+export const acceptTermsSchema = z.object({
+  version: z.string().min(1).max(40),
+  agree: z.literal(true, { errorMap: () => ({ message: 'Tick the box to confirm you agree to the Terms & Conditions.' }) }),
+});
 
 export const passwordResetRequestSchema = z.object({ email: emailSchema });
 export const passwordResetCompleteSchema = z.object({
