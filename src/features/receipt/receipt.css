@@ -26,7 +26,7 @@
   /* Height must follow the receipt, never the screen: a leftover 100vh / min-height makes the printer feed a long blank strip or a second slip. */
   html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; height: auto !important; min-height: 0 !important; }
   .no-print { display: none !important; }
-  .receipt-page { min-height: 0 !important; height: auto; padding: 0; background: #fff; }
+  .receipt-page { min-height: 0 !important; height: auto; padding: 0; background: #fff; overflow: hidden; }
   .receipt { margin: 0; box-shadow: none; padding: 2mm 1mm 0; break-inside: avoid; }
   .receipt, .receipt * { color: #000 !important; }
 }

@@ -12,11 +12,8 @@ export default function Sidebar() {
   return (
     <aside className="flex flex-col gap-5 bg-night px-4 pb-5 pt-6 text-sand md:sticky md:top-0 md:h-screen">
       <div className="px-1.5">
-        <div className="flex items-center gap-2.5 text-[22px] font-bold">
-          <TenantLogo tenant={tenant} />
-          {tenant.name}
-        </div>
-        <small className={`${tenant.logoVersion ? 'ml-[50px]' : 'ml-7'} text-[13px] text-taupe`}>Shop manager</small>
+        <TenantLogo tenant={tenant} />
+        <small className={`mt-1.5 block text-[13px] text-taupe ${tenant.logoVersion ? 'text-center' : 'ml-7'}`}>Shop manager</small>
       </div>
 
       <div className="flex items-center gap-3 rounded-2xl bg-slate p-3">

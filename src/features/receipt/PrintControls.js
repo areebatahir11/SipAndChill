@@ -20,11 +20,35 @@ function useReceiptTrim() {
   return [trim, change];
 }
 
+const MM_PER_PX = 25.4 / 96;
+
+/**
+ * Makes the printed page exactly as long as the receipt. Without this the browser uses the driver's default page (A4 or a very long
+ * roll) and the printer feeds a long blank strip or a second slip. Runs just before every print (button, Ctrl+P, auto print).
+ */
+function usePageFitsReceipt(width) {
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.dataset.receiptPage = 'true';
+    document.head.appendChild(style);
+    const fit = () => {
+      const el = document.querySelector('.receipt');
+      if (!el) return;
+      const mm = Math.ceil(el.getBoundingClientRect().height * MM_PER_PX) + 2; // +2 mm so rounding never spills onto a second page
+      style.textContent = `@page { size: ${width}mm ${mm}mm; margin: 0; }`;
+    };
+    fit();
+    window.addEventListener('beforeprint', fit);
+    return () => { window.removeEventListener('beforeprint', fit); style.remove(); };
+  }, [width]);
+}
+
 /** On-screen toolbar. Hidden when printing (see .no-print in receipt.css). */
 export default function PrintControls({ orderId, width, autoprint, model }) {
   const { config, direct, status, hydrated, api: printer } = usePrinter();
   const fired = useRef(false);
   const [trim, changeTrim] = useReceiptTrim();
+  usePageFitsReceipt(width);
 
   // Printing paper estimate for this very receipt (same bytes the printer would get).
   const paper = useMemo(() => receiptToEscPos(model, { paper: width }), [model, width]);

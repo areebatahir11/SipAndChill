@@ -12,11 +12,12 @@
   --color-slate: #393e46;
   --color-taupe: #948979;
   --color-sand: #dfd0b8;
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-sans: var(--font-ui), "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 @layer base {
-  body { @apply bg-blush font-sans text-[15px] leading-normal text-night antialiased; }
+  body { @apply bg-blush font-sans text-[15px] leading-normal text-night antialiased; font-feature-settings: 'tnum' 1; } /* tnum: digits line up in price columns */
+  h1, h2, h3 { letter-spacing: -0.02em; }
   :focus-visible { outline: 3px solid var(--color-taupe); outline-offset: 2px; }
 }
 
