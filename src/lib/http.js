@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
+import { prismaFailure } from '@/lib/db/prisma-failure.mjs';
 
 export class HttpError extends Error {
   constructor(status, message, code) {
@@ -25,6 +26,8 @@ export function handle(fn) {
         const first = Object.values(fields).flat()[0] || 'Invalid input.';
         return NextResponse.json({ error: { message: first, code: 'VALIDATION', fields } }, { status: 400 });
       }
+      const known = prismaFailure(err);
+      if (known) return NextResponse.json({ error: { message: known.message, code: known.code } }, { status: known.status });
       console.error('[api] unhandled error', err);
       return NextResponse.json({ error: { message: 'Something went wrong. Please try again.' } }, { status: 500 });
     }

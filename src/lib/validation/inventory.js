@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { nonNegative, requiredName } from './common';
+import { decimalPlaces } from '@/lib/money.mjs';
 
 export const UNITS = ['kg', 'g', 'L', 'ml', 'pcs', 'pack', 'dozen'];
 export const KINDS = ['INGREDIENT', 'MATERIAL'];
@@ -11,13 +12,13 @@ const base = {
   name: requiredName('Name'),
   kind: z.enum(KINDS),
   unit: z.enum(UNITS),
-  minStock: nonNegative('Reorder level'),
+  minStock: nonNegative('Reorder level', 3),
   costPerUnit: nonNegative('Cost'),
   expiryDate: date.optional(),
   supplierId: z.string().trim().transform((v) => v || null).nullable().optional(),
 };
 
-export const createIngredientSchema = z.object({ ...base, openingStock: nonNegative('Opening stock').optional() });
+export const createIngredientSchema = z.object({ ...base, openingStock: nonNegative('Opening stock', 3).optional() });
 
 export const updateIngredientSchema = z
   .object({
@@ -40,8 +41,8 @@ export const updateIngredientSchema = z
 export const stockMovementSchema = z
   .object({
     type: z.enum(MANUAL_MOVEMENTS),
-    quantity: z.coerce.number({ invalid_type_error: 'Quantity must be a number.' }).min(0).max(9_999_999),
-    unitCost: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().min(0).max(9_999_999).optional()),
+    quantity: z.coerce.number({ invalid_type_error: 'Quantity must be a number.' }).min(0).max(9_999_999).refine((v) => decimalPlaces(v) <= 3, 'Quantity can have at most 3 decimal places.'),
+    unitCost: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().min(0).max(9_999_999).refine((v) => decimalPlaces(v) <= 2, 'Cost can have at most 2 decimal places.').optional()),
     note: z.string().trim().max(200).transform((v) => v || null).nullable().optional(),
   })
   .refine((v) => v.type === 'ADJUSTMENT' || v.quantity > 0, { message: 'Quantity must be greater than zero.', path: ['quantity'] });

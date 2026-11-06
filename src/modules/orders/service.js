@@ -3,11 +3,12 @@ import { HttpError } from '@/lib/http';
 import { isUniqueViolation } from '@/lib/db/errors';
 import { audit } from '@/modules/auth/audit';
 import { hasPermission, PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
-import { calcOrder, calcPayment, fromMinor, toMinor } from '@/lib/money.mjs';
+import { calcOrder, calcPayment, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
 import { consumption, fromMilli, maxServings, mergeLines, toMilli } from '@/lib/orders/recipe.mjs';
 
 const TX = { maxWait: 5000, timeout: 15000 };
 const PAGE_SIZE = 20;
+const MAX_ORDER_NO = 2_147_483_647; // Order.orderNo is a 32-bit INT; a larger search number would make the database query fail
 const dec = (d) => d.toFixed(2);
 
 // ---------------------------------------------------------------------------
@@ -107,6 +108,8 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
 
       // 2. Totals from DATABASE prices, in integer paisa.
       const calc = calcOrder(lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitPriceMinor: toMinor(dec(byId.get(l.productId).price)) })));
+      // The total columns are DECIMAL(12,2): refuse an absurd order with a clear message instead of a database error.
+      if (calc.totalMinor > MAX_MINOR) throw new HttpError(400, 'This order total is too large. Please reduce the quantities.', 'TOTAL_TOO_LARGE');
       const pay = calcPayment(calc.totalMinor, 0, amountReceived);
 
       // 3. Order number (the row lock also serialises concurrent orders of one tenant).
@@ -161,7 +164,7 @@ export async function listOrders(auth, { page = 1, filter = 'all', q = '' } = {}
   const where = {
     ...scope(auth),
     ...(filter === 'cancelled' ? { status: 'CANCELLED' } : filter === 'all' ? {} : { status: 'COMPLETED', paymentStatus: filter.toUpperCase() }),
-    ...(q ? { orderNo: Number(q) } : {}),
+    ...(q ? { orderNo: Number(q) > MAX_ORDER_NO ? -1 : Number(q) } : {}), // -1 = matches nothing (no such order number)
   };
   const [rows, total] = await Promise.all([
     prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),

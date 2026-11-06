@@ -20,6 +20,8 @@ export const GET = handle(async (request, { params }) => {
 export const POST = handle(async (request, { params }) => {
   const admin = await requirePlatformApi(request);
   const { id } = await params;
+  // Refuse an oversized upload from its declared length before it is read into memory (the exact size is re-checked below).
+  if (Number(request.headers.get('content-length')) > LOGO_MAX_BYTES + 64 * 1024) throw new HttpError(413, 'This logo is too big. Please use a picture under 300 KB.', 'VALIDATION');
   const form = await request.formData().catch(() => { throw new HttpError(400, 'Choose a logo picture first.', 'VALIDATION'); });
   const file = form.get('logo');
   if (!file || typeof file === 'string') throw new HttpError(400, 'Choose a logo picture first.', 'VALIDATION');

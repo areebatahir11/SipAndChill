@@ -8,7 +8,7 @@ Next.js (App Router) + Tailwind CSS v4 + Prisma/PostgreSQL. First client: Sip & 
 3. `npx prisma migrate dev`
 4. Supabase only: run `prisma/supabase-rls.sql` in the SQL Editor.
 5. Run `npm run db:seed`, then `npm run dev` and open http://localhost:3000
-6. `npm test` runs the unit tests (permissions, platform billing, money/payments, recipes, date ranges, receipt model).
+6. `npm test` runs the unit tests (`tests/core-rules.test.mjs`: money/payments, permissions, date ranges, recipes, receipt model, logo rules, security headers, API guards).
 
 ## Folder structure
 ```
@@ -101,3 +101,8 @@ The logo is part of the client's branding, so **only the software owner uploads 
 - The sidebar shows the logo on a white chip (black logos stay visible), or the pink drop when a client has none.
 - Code: `src/modules/platform/logo.js`, `src/features/platform/ClientLogoCard.js`, `src/app/api/platform/clients/[id]/logo/route.js`, `src/modules/settings/logo.js` (read), `src/lib/branding/logo.mjs`, `src/components/layout/TenantLogo.js`.
 - Deploy: no new migration. The `TenantLogo` table from the earlier migration is reused.
+
+## Branding & security notes
+- PearlSolutions logo files live in `public/brand/` (`pearl-logo-light.png` for white cards, `pearl-logo-dark.png` for the dark sidebar, `pearl-mark.png` icon only); browser/app icons are `src/app/icon.png`, `apple-icon.png`, `favicon.ico`. Shops keep their own logo (uploaded by PearlSolutions in `/platform`).
+- Pre-launch audit, fixes, open decisions and the launch smoke checklist: `docs/SECURITY_AUDIT.md`.
+- `next.config.mjs` sets the security headers. Keep `usb=(self)` and `serial=(self)` in the Permissions-Policy or the receipt printer cannot connect.

@@ -3,6 +3,16 @@
 
 const MONEY_RE = /^\d{1,10}(\.\d{1,2})?$/;
 
+/** Largest amount a DECIMAL(12,2) column holds (9,999,999,999.99), in paisa. Anything bigger would be rejected by the database. */
+export const MAX_MINOR = 999_999_999_999;
+
+/** Number of digits after the decimal point of a JS number (Infinity for exponent notation such as 1e-7). */
+export function decimalPlaces(n) {
+  const s = String(n);
+  if (/e/i.test(s)) return Infinity;
+  return (s.split('.')[1] || '').length;
+}
+
 /** "12.5" | 12.5 | "12" -> 1250. Throws on anything that is not a plain non-negative amount with max 2 decimals. */
 export function toMinor(value) {
   const s = typeof value === 'number' ? String(value) : String(value ?? '').trim();

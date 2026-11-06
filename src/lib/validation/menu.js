@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { nonNegative, optionalText, requiredName } from './common';
+import { decimalPlaces } from '@/lib/money.mjs';
 
 const idOrNull = z.string().trim().transform((v) => v || null).nullable();
 
@@ -32,7 +33,7 @@ export const recipeSchema = z
       .array(
         z.object({
           ingredientId: z.string().trim().min(1, 'Choose an ingredient.'),
-          quantity: z.coerce.number({ invalid_type_error: 'Quantity must be a number.' }).gt(0, 'Quantity must be greater than zero.').max(9_999_999),
+          quantity: z.coerce.number({ invalid_type_error: 'Quantity must be a number.' }).gt(0, 'Quantity must be greater than zero.').max(9_999_999).refine((v) => decimalPlaces(v) <= 3, 'Quantity can have at most 3 decimal places.'),
         })
       )
       .max(40, 'A recipe can have at most 40 lines.'),
