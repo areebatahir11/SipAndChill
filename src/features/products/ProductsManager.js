@@ -7,9 +7,13 @@ import { money } from '@/lib/format';
 import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import ProductFormDialog from './ProductFormDialog';
 import RecipeDialog from './RecipeDialog';
+import PromoBanner from '@/features/promotions/PromoBanner';
+import usePromotion from '@/features/promotions/usePromotion';
+import { toMinor, fromMinor } from '@/lib/money.mjs';
 
-export default function ProductsManager() {
+export default function ProductsManager({ promotion = null }) {
   const { can } = useAuth();
+  const promo = usePromotion(promotion);
   const canManage = can(P.PRODUCTS_MANAGE);
   const canSeeRecipe = can(P.RECIPES_VIEW);
   const canEditRecipe = can(P.RECIPES_MANAGE);
@@ -59,6 +63,7 @@ export default function ProductsManager() {
         </Select>
         {canManage && <Button variant="primary" onClick={() => setDialog({ type: 'form' })}>Add item</Button>}
       </PageHeader>
+      <PromoBanner promotion={promo.promotion} upcoming={promo.upcoming} className="mb-4" />
       {notice && <Alert tone="success" className="mb-4">{notice}</Alert>}
       {loadError && <Alert className="mb-4">{loadError}</Alert>}
 
@@ -69,7 +74,14 @@ export default function ProductsManager() {
             <tr key={p.id} className={p.isActive ? '' : 'opacity-60'}>
               <Td className="whitespace-nowrap font-medium">{p.name}</Td>
               <Td className="whitespace-nowrap">{p.categoryName || '—'}</Td>
-              <Td className="whitespace-nowrap">{money(p.price)}</Td>
+              <Td className="whitespace-nowrap">
+                {promo.percent ? (
+                  <span className="inline-flex items-baseline gap-2">
+                    <b>{money(fromMinor(promo.salePrice(toMinor(p.price))))}</b>
+                    <s className="text-[13px] text-graphite" aria-label="regular price">{money(p.price)}</s>
+                  </span>
+                ) : money(p.price)}
+              </Td>
               {canSeeRecipe && <Td className="whitespace-nowrap">{p.recipeLines > 0 ? money(p.cost) : <Pill tone="off">No recipe</Pill>}</Td>}
               {canSeeRecipe && <Td>{margin !== null ? `${margin}%` : '—'}</Td>}
               <Td><Pill tone={p.isActive ? 'ok' : 'off'}>{p.isActive ? 'On menu' : 'Hidden'}</Pill></Td>

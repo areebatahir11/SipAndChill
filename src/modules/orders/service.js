@@ -4,6 +4,7 @@ import { isUniqueViolation } from '@/lib/db/errors';
 import { audit } from '@/modules/auth/audit';
 import { hasPermission, PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import { calcOrder, calcPayment, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
+import { activePromotion, currentOrUpcoming, discountLabel, orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
 import { consumption, fromMilli, maxServings, mergeLines, toMilli } from '@/lib/orders/recipe.mjs';
 
 const TX = { maxWait: 5000, timeout: 15000 };
@@ -26,6 +27,7 @@ const toOrder = (o) => ({
   paymentStatus: o.paymentStatus,
   subtotal: dec(o.subtotal),
   discount: dec(o.discount),
+  discountLabel: o.discountLabel ?? null,
   total: dec(o.total),
   amountPaid: dec(o.amountPaid),
   outstanding: fromMinor(Math.max(toMinor(dec(o.total)) - toMinor(dec(o.amountPaid)), 0)),
@@ -61,6 +63,8 @@ export async function listPosProducts(tenantId) {
   ]);
   return {
     categories,
+    // Announced promotion (running, or starting later). The browser re-checks the dates every minute; the server re-checks when the order is saved.
+    promotion: currentOrUpcoming(),
     products: products.map((p) => {
       const recipe = p.recipeItems.map((r) => ({ ingredientId: r.ingredientId, quantityMilli: toMilli(r.quantity) }));
       const stock = new Map(p.recipeItems.map((r) => [r.ingredientId, toMilli(r.ingredient.stock)]));
@@ -107,7 +111,10 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
       }
 
       // 2. Totals from DATABASE prices, in integer paisa.
-      const calc = calcOrder(lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitPriceMinor: toMinor(dec(byId.get(l.productId).price)) })));
+      const priced = lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitPriceMinor: toMinor(dec(byId.get(l.productId).price)) }));
+      // Promotion: decided HERE from the server clock and the dates in lib/promotions (the browser's idea of the discount is never trusted).
+      const promo = activePromotion(new Date());
+      const calc = calcOrder(priced, promo ? orderDiscountMinor(priced, promo.percent) : 0);
       // The total columns are DECIMAL(12,2): refuse an absurd order with a clear message instead of a database error.
       if (calc.totalMinor > MAX_MINOR) throw new HttpError(400, 'This order total is too large. Please reduce the quantities.', 'TOTAL_TOO_LARGE');
       const pay = calcPayment(calc.totalMinor, 0, amountReceived);
@@ -121,7 +128,7 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
         data: {
           tenantId: auth.tenantId, orderNo, clientRequestId,
           status: 'COMPLETED', paymentStatus: pay.status,
-          subtotal: fromMinor(calc.subtotalMinor), discount: fromMinor(calc.discountMinor), total: fromMinor(calc.totalMinor),
+          subtotal: fromMinor(calc.subtotalMinor), discount: fromMinor(calc.discountMinor), discountLabel: calc.discountMinor > 0 ? discountLabel(promo) : null, total: fromMinor(calc.totalMinor),
           amountPaid: fromMinor(pay.paidMinor),
           cashierId: auth.user.id, cashierName: auth.user.name,
           items: { create: calc.items.map((i) => ({ tenantId: auth.tenantId, productId: i.productId, name: byId.get(i.productId).name, unitPrice: fromMinor(i.unitPriceMinor), quantity: i.quantity, lineTotal: fromMinor(i.lineTotalMinor) })) },
@@ -145,7 +152,7 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
       return created;
     }, TX);
 
-    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, total: dec(order.total), paymentStatus: order.paymentStatus } });
+    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus } });
     return { order: toOrder(order), duplicate: false };
   } catch (e) {
     // Two identical requests raced: the loser hits the unique key, rolls back, and returns the winner's order.

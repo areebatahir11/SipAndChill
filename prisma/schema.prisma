@@ -388,7 +388,8 @@ model Order {
   status          String    @default("COMPLETED") // COMPLETED | CANCELLED
   paymentStatus   String    @default("UNPAID") // PAID | PARTIAL | UNPAID
   subtotal        Decimal   @db.Decimal(12, 2)
-  discount        Decimal   @default(0) @db.Decimal(12, 2) // reserved: no discount workflow in Version 1
+  discount        Decimal   @default(0) @db.Decimal(12, 2) // promotion discount applied by the server (see lib/promotions); 0 = none
+  discountLabel   String? // snapshot of the promotion name, e.g. "20% OFF", so receipts reprint identically later
   total           Decimal   @db.Decimal(12, 2)
   amountPaid      Decimal   @default(0) @db.Decimal(12, 2) // cash actually applied to this order (never includes change)
   cashierId       String?

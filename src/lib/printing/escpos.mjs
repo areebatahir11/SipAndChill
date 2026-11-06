@@ -194,7 +194,7 @@ export function receiptToEscPos(model, opts = {}) {
 
     // totals
     p.row('Subtotal', model.subtotal);
-    if (model.discount) p.row('Discount', `- ${model.discount}`);
+    if (model.discount) p.row(model.discountLabel ? `Discount (${model.discountLabel})` : 'Discount', `- ${model.discount}`);
     p.bold(true).size(1, 2).row('TOTAL', model.total).size(1, 1).bold(false);
     p.row('Amount Received', model.received);
     p.row('Change Returned', model.change);

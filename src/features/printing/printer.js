@@ -211,8 +211,13 @@ export async function probe() {
   const { config } = snapshot;
   if (config.mode !== 'usb' || !config.usb || !navigator.usb) { setLink('unknown'); return snapshot.link; }
   setLink('checking');
-  try { await enqueue(() => withUsb(config.usb, async () => {})); setLink('ok'); }
-  catch (e) { setLink(e?.code === 'NOT_FOUND' ? 'missing' : isClaimError(e) ? 'blocked' : 'error'); }
+  let last = null;
+  // Two tries: another tab of this app checking the same printer at the same instant also looks like "blocked" for a moment.
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try { await enqueue(() => withUsb(config.usb, async () => {})); setLink('ok'); return 'ok'; }
+    catch (e) { last = e; if (!isClaimError(e)) break; await sleep(700); }
+  }
+  setLink(last?.code === 'NOT_FOUND' ? 'missing' : isClaimError(last) ? 'blocked' : 'error');
   return snapshot.link;
 }
 

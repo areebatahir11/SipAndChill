@@ -124,14 +124,21 @@ export default function PrinterSetup({ shopPaper }) {
             </ol>
             <small className="mt-1 block text-graphite">After this, Windows no longer lists the printer for normal programs. Receipts go only through this app, which is what you want at the counter.</small>
           </div>
-          <div><Button variant="secondary" onClick={act(printer.probe)}>Check again</Button></div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={act(printer.probe)}>Check again</Button>
+            <Button variant="secondary" onClick={act(printer.pairUsb)}>Connect printer again</Button>
+          </div>
+          <small className="text-graphite">Still blocked after Zadig says success? Unplug the printer for 5 seconds, plug it in again, reload this page (Ctrl+Shift+R), then press Check again. If it says “Not found”, press Connect printer again and pick the printer.</small>
         </div>
       )}
 
       {missing && (
         <div className="grid gap-2">
-          <Alert>The printer is not answering. Switch it on, check the USB cable, then try again.</Alert>
-          <div><Button variant="secondary" onClick={act(printer.probe)}>Check again</Button></div>
+          <Alert>The printer is not answering. Switch it on, check the USB cable, then try again. After installing a new driver (Zadig) Chrome needs the printer picked once more: press Connect printer again.</Alert>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={act(printer.probe)}>Check again</Button>
+            <Button variant="primary" onClick={act(printer.pairUsb)}>Connect printer again</Button>
+          </div>
         </div>
       )}
 

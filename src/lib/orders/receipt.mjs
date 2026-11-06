@@ -30,6 +30,7 @@ export function buildReceipt(order, settings) {
     lines: order.items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: rs(toMinor(i.unitPrice), c), lineTotal: rs(toMinor(i.lineTotal), c) })),
     subtotal: rs(toMinor(order.subtotal), c),
     discount: toMinor(order.discount) > 0 ? rs(toMinor(order.discount), c) : null,
+    discountLabel: toMinor(order.discount) > 0 ? (order.discountLabel || null) : null,
     total: rs(total, c),
     received: rs(received, c),
     change: rs(change, c),

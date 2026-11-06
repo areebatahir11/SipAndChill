@@ -10,6 +10,9 @@ import { money } from '@/lib/format';
 import usePrinter from '@/features/printing/usePrinter';
 import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
 import PrinterStatusButton from '@/features/printing/PrinterStatusButton';
+import PromoBanner from '@/features/promotions/PromoBanner';
+import usePromotion from '@/features/promotions/usePromotion';
+import { orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
 
 /** crypto.randomUUID needs HTTPS; a tablet on the shop's local network may use plain http. */
 function newRequestId() {
@@ -37,6 +40,7 @@ export default function PosCounter({ shopPaper = 80 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // confirmed order, shown in the success dialog
+  const promo = usePromotion(menu?.promotion ?? null);
   const printerState = usePrinter();
   const requestId = useRef(newRequestId());
 
@@ -66,7 +70,11 @@ export default function PosCounter({ shopPaper = 80 }) {
     return [{ ...l, qty: Math.min(qty, 999) }];
   }));
 
-  const totals = useMemo(() => calcOrder(cart.map((l) => ({ unitPriceMinor: l.priceMinor, quantity: l.qty }))), [cart]);
+  // Preview only: the server recalculates the discount from its own clock when the order is saved.
+  const totals = useMemo(() => {
+    const lines = cart.map((l) => ({ unitPriceMinor: l.priceMinor, quantity: l.qty }));
+    return calcOrder(lines, orderDiscountMinor(lines, promo.percent));
+  }, [cart, promo.percent]);
   const receivedMinor = canPay ? safeMinor(received) : 0;
   const pay = receivedMinor === null ? null : calcPayment(totals.totalMinor, 0, receivedMinor);
 
@@ -99,6 +107,7 @@ export default function PosCounter({ shopPaper = 80 }) {
         {canPrint && <PrinterStatusButton shopPaper={shopPaper} />}
       </PageHeader>
       {loadError && <Alert className="mb-4">{loadError}</Alert>}
+      <PromoBanner promotion={promo.promotion} upcoming={promo.upcoming} className="mb-4" />
 
       <div className="grid items-start gap-5 lg:grid-cols-[1fr_390px]">
         <section aria-label="Menu">
@@ -120,7 +129,12 @@ export default function PosCounter({ shopPaper = 80 }) {
                   className="flex min-h-[96px] flex-col justify-between rounded-2xl border border-peach bg-white p-3 text-left transition-colors hover:border-rose hover:bg-blush active:bg-peach disabled:cursor-not-allowed disabled:opacity-50">
                   <span className="font-semibold leading-snug">{p.name}</span>
                   <span className="mt-2 flex items-end justify-between gap-2">
-                    <span className="text-[17px] font-semibold">{money(p.price)}</span>
+                    {promo.percent ? (
+                      <span className="grid leading-tight">
+                        <s className="text-[13px] text-graphite" aria-label="regular price">{money(p.price)}</s>
+                        <span className="text-[17px] font-semibold">{money(fromMinor(promo.salePrice(toMinor(p.price))))}</span>
+                      </span>
+                    ) : <span className="text-[17px] font-semibold">{money(p.price)}</span>}
                     {soldOut ? <Pill tone="alert">Out of stock</Pill> : p.maxServings !== null && p.maxServings <= 5 ? <span className="text-xs text-graphite">{p.maxServings} left</span> : null}
                   </span>
                 </button>
@@ -136,8 +150,10 @@ export default function PosCounter({ shopPaper = 80 }) {
               {cart.map((l) => (
                 <li key={l.productId} className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 py-2.5">
                   <span className="font-medium">{l.name}</span>
-                  <b className="text-right">{money(fromMinor(l.priceMinor * l.qty))}</b>
-                  <span className="text-[13px] text-graphite">{money(fromMinor(l.priceMinor))} each</span>
+                  <b className="text-right">{money(fromMinor(promo.salePrice(l.priceMinor) * l.qty))}</b>
+                  <span className="text-[13px] text-graphite">
+                    {promo.percent ? <><s>{money(fromMinor(l.priceMinor))}</s> {money(fromMinor(promo.salePrice(l.priceMinor)))}</> : money(fromMinor(l.priceMinor))} each
+                  </span>
                   <span className="flex items-center justify-end gap-1.5">
                     <Button size="sm" aria-label={`Decrease ${l.name}`} onClick={() => setQty(l.productId, l.qty - 1)}>−</Button>
                     <span className="min-w-8 text-center font-semibold" aria-live="polite">{l.qty}</span>
@@ -151,6 +167,7 @@ export default function PosCounter({ shopPaper = 80 }) {
 
           <dl className="mt-3 grid gap-1.5 border-t border-peach pt-3">
             <Row label="Subtotal" value={money(fromMinor(totals.subtotalMinor))} />
+            {totals.discountMinor > 0 && <Row label={`Discount (${promo.promotion.short})`} value={`− ${money(fromMinor(totals.discountMinor))}`} />}
             <Row label="Order Total" value={money(fromMinor(totals.totalMinor))} big />
             {canPay && cart.length > 0 && (
               <>
@@ -185,6 +202,7 @@ export default function PosCounter({ shopPaper = 80 }) {
       {done && (
         <Modal title={`Order #${done.order.orderNo} confirmed`} onClose={() => setDone(null)}>
           <dl className="grid gap-2">
+            {Number(done.order.discount) > 0 && <Row label={done.order.discountLabel ? `Discount (${done.order.discountLabel})` : 'Discount'} value={`− ${money(done.order.discount)}`} />}
             <Row label="Order Total" value={money(done.order.total)} big />
             <Row label="Amount Received" value={money(sum(done.order.payments, 'amountReceived'))} />
             <Row label="Change Returned" value={money(sum(done.order.payments, 'changeReturned'))} big />

@@ -36,7 +36,7 @@ export default function Receipt({ model: r, width, orderId, autoprint }) {
         <hr />
         <div className="totals">
           <div className="row"><span>Subtotal</span><span>{r.subtotal}</span></div>
-          {r.discount && <div className="row"><span>Discount</span><span>- {r.discount}</span></div>}
+          {r.discount && <div className="row"><span>Discount{r.discountLabel ? ` (${r.discountLabel})` : ''}</span><span>- {r.discount}</span></div>}
           <div className="row grand"><span>TOTAL</span><span>{r.total}</span></div>
           <div className="row"><span>Amount Received</span><span>{r.received}</span></div>
           <div className="row"><span>Change Returned</span><span>{r.change}</span></div>

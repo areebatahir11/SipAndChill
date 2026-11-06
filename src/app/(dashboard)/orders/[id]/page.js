@@ -36,7 +36,7 @@ export default async function OrderDetailPage({ params }) {
           <h2 className="mb-2 text-lg font-semibold">Totals</h2>
           <dl className="grid gap-1.5">
             <L k="Subtotal" v={money(order.subtotal)} />
-            {Number(order.discount) > 0 && <L k="Discount" v={`− ${money(order.discount)}`} />}
+            {Number(order.discount) > 0 && <L k={order.discountLabel ? `Discount (${order.discountLabel})` : 'Discount'} v={`− ${money(order.discount)}`} />}
             <L k="Order Total" v={money(order.total)} big />
             <L k="Collected" v={money(order.amountPaid)} />
             <L k="Outstanding Amount" v={order.status === 'CANCELLED' ? '—' : money(order.outstanding)} />
