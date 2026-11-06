@@ -6,8 +6,8 @@ export default function TenantLogo({ tenant }) {
   const [failed, setFailed] = useState(false);
   if (!tenant.logoVersion || failed) return <span className="size-[18px] flex-none -rotate-45 rounded-[50%_50%_50%_0] bg-rose" />;
   return (
-    // White chip: a black logo would disappear on the dark sidebar.
-    <span className="grid size-10 flex-none place-items-center overflow-hidden rounded-xl bg-white p-1">
+    // No background: a transparent PNG stays transparent on the dark sidebar.
+    <span className="grid size-10 flex-none place-items-center overflow-hidden">
       <img src={`/api/settings/logo?v=${tenant.logoVersion}`} alt={`${tenant.name} logo`} onError={() => setFailed(true)} className="max-h-full max-w-full object-contain" />
     </span>
   );
