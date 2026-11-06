@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Button, Card, Field, Form, Input, PageHeader, Select } from '@/components/ui';
 import { api } from '@/lib/api-client';
-import LogoUploader from './LogoUploader';
 
 export default function SettingsForm() {
   const router = useRouter();
@@ -36,7 +35,6 @@ export default function SettingsForm() {
   return (
     <>
       <PageHeader title="Shop Settings" sub="Shown on receipts and across the app." />
-      <LogoUploader />
       {!form && !error && <p className="text-graphite">Loading…</p>}
       {error && <Alert className="mb-4">{error}</Alert>}
       {form && (

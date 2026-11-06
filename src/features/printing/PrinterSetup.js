@@ -78,7 +78,7 @@ export default function PrinterSetup({ shopPaper }) {
         <div className="grid gap-3">
           <div>
             <Button variant="primary" size="lg" className="w-full" disabled={!can.usb || !can.secure} onClick={act(printer.pairUsb)}>Connect printer</Button>
-            <small className="mt-1.5 block text-graphite">Plug the printer in with its USB cable and switch it on. Click the button, then pick your printer in the window that opens (look for its model name, e.g. “POS-80”, “XP-58”).</small>
+            <small className="mt-1.5 block text-graphite">Plug the printer in with its USB cable and switch it on. Click the button, then pick your printer in the window that opens (look for its model name, e.g. “SP-200U”, “POS-80”, “XP-58”).</small>
           </div>
           <More title="My printer is Bluetooth, or it does not connect">
             <div>
@@ -143,6 +143,7 @@ export default function PrinterSetup({ shopPaper }) {
         <p>The software has <b>no limit</b>: it prints as long as the printer has paper. A typical bill of 3 items on {paper} mm paper uses about <b>{(estimate.lengthMm / 10).toFixed(1)} cm</b>, so a standard {ROLL_METERS[paper]} m roll gives roughly <b>{estimate.receiptsPerRoll.toLocaleString()}</b> receipts. Use thermal paper; the printer needs no ink.</p>
         <ul className="grid list-disc gap-1.5 pl-5">
           <li><b>“Printer is being used by another program”</b> (Windows): Windows has claimed the USB printer with its own driver. Use the Bluetooth / COM-port option, or the browser print window, or install the WinUSB driver for the printer with the free Zadig tool, then connect again.</li>
+          <li><b>Print without the dialog (Windows, driver installed)</b>: in the print window choose the printer’s <b>80 mm</b> paper size, margins “None”, scale 100%. To skip the window, start Chrome with <code>--kiosk-printing</code> (add it to the end of the Chrome shortcut’s Target) and set this printer as the Windows default printer.</li>
           <li><b>Printer not in the list</b>: switch it on, use a data cable (not a charge-only cable), try another USB port. Use Chrome or Edge.</li>
           <li><b>Garbled text</b>: the printer may not speak ESC/POS (rare). Use the browser print window.</li>
           <li><b>Network (LAN / Wi-Fi) printers</b> cannot be reached directly by a web page. Connect them by USB, or use the browser print window with the printer installed on the PC.</li>

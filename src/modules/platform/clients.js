@@ -39,6 +39,7 @@ function toClient(t) {
     dueDate: t.dueDate,
     lastPaidAt: t.lastPaidAt,
     internalNote: t.internalNote,
+    logoVersion: t.logoUpdatedAt ? t.logoUpdatedAt.getTime() : null, // null = no logo; also the cache-busting number in the image URL
     createdAt: t.createdAt,
     staffCount: t._count.memberships,
     owner: owners[0] || null,

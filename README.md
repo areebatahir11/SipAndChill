@@ -92,9 +92,12 @@ Business day = Pakistan time (UTC+5), set in `src/lib/orders/dates.mjs`. Invento
 - **Password recovery:** `/login` and My Account link to `/forgot-password`. Business Owners and PearlSolutions platform admins can receive a 6-digit email code (10-minute expiry, one-time use, maximum 5 verification attempts); staff continue to request resets from their owner/manager. A successful reset invalidates all existing sessions and sends a "password changed" email. The request endpoint answers identically (and immediately: the work runs after the response) for known and unknown emails. Code limits are stored in the database so they hold on serverless hosting: 60 s between codes, 5 codes per account per hour, 5 guesses per code (`src/lib/auth/otp-policy.mjs`). IP throttling is still in memory (best effort).
 - **SMTP:** configure `SMTP_HOST`, `SMTP_PORT=465`, `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM` in `.env`. The current transport uses implicit TLS on port 465; for Gmail, use a Google App Password when 2-Step Verification is enabled. Never commit `.env` or share SMTP credentials.
 
-## Business logo (per client)
-The owner uploads the logo in **Shop Settings** (PNG / JPG / WebP, shrunk to 512 px in the browser, max 300 KB on the server; SVG is refused because it can carry scripts).
+## Business logo (per client) - set by PearlSolutions only
+The logo is part of the client's branding, so **only the software owner uploads it**: `/platform` > My Clients > open the client > **Business logo** card (Upload / Change / Remove). Business owners and staff cannot change it; Shop Settings no longer has a logo section.
+- Accepted: PNG / JPG / WebP, shrunk to 512 px in the browser, max 300 KB on the server; SVG is refused because it can carry scripts.
 - Stored in its own table `TenantLogo` (bytea), so normal Tenant/settings queries never load the picture; `Tenant.logoUpdatedAt` is the cache-busting version in the image URL.
-- Served by `GET /api/settings/logo` (no id in the URL: the tenant always comes from the session, so one client can never fetch another's logo). `POST` / `DELETE` need `settings.manage`.
-- Sidebar shows the logo on a white chip (black logos stay visible), or the pink drop when a client has none. Code: `src/modules/settings/logo.js`, `src/lib/branding/logo.mjs`, `src/features/settings/LogoUploader.js`, `src/components/layout/TenantLogo.js`.
-- Deploy: `npx prisma migrate deploy` once against the production database, then run `prisma/supabase-rls.sql` again in Supabase (new table).
+- Platform API (platform admin only): `GET / POST / DELETE /api/platform/clients/:id/logo`. Every change is written to the audit log (`platform.client_logo_changed` / `platform.client_logo_removed`).
+- Business side is read-only: `GET /api/settings/logo` (no id in the URL, the tenant always comes from the session, so one client can never fetch another's logo). `POST` / `DELETE` there no longer exist.
+- The sidebar shows the logo on a white chip (black logos stay visible), or the pink drop when a client has none.
+- Code: `src/modules/platform/logo.js`, `src/features/platform/ClientLogoCard.js`, `src/app/api/platform/clients/[id]/logo/route.js`, `src/modules/settings/logo.js` (read), `src/lib/branding/logo.mjs`, `src/components/layout/TenantLogo.js`.
+- Deploy: no new migration. The `TenantLogo` table from the earlier migration is reused.

@@ -8,6 +8,7 @@ import { businessTypeLabel } from '@/lib/platform/constants.mjs';
 import { useSubmit } from '@/lib/use-submit';
 import { AccessPill, BillingPill } from './ClientPills';
 import BillingDialog from './BillingDialog';
+import ClientLogoCard from './ClientLogoCard';
 import EditClientDialog from './EditClientDialog';
 import ResetOwnerPasswordDialog from './ResetOwnerPasswordDialog';
 
@@ -90,6 +91,7 @@ export default function ClientDetail({ id }) {
             ['Currency', client.currency],
           ]}
         />
+        <ClientLogoCard clientId={id} logoVersion={client.logoVersion} onChanged={saved} />
       </div>
 
       <h2 className="mb-3.5 mt-9 text-xl font-semibold">Owner login</h2>
