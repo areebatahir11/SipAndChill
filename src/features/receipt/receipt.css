@@ -6,7 +6,7 @@
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; max-width: 520px; margin: 0 auto 16px; }
 .toolbar .hint { flex-basis: 100%; margin: 0; color: #4a4a4a; font-size: 13px; }
 
-.receipt { margin: 0 auto; background: #fff; color: #000; padding: 4mm 2mm; box-shadow: 0 2px 10px rgba(0,0,0,.2); box-sizing: border-box;
+.receipt { margin: 0 auto; background: #fff; color: #000; padding: 4mm 2mm 8mm; box-shadow: 0 2px 10px rgba(0,0,0,.2); box-sizing: border-box;
   font-family: ui-monospace, "Cascadia Mono", "Courier New", monospace; font-size: 12px; line-height: 1.35; }
 .receipt.w58 { width: calc(44mm + var(--receipt-trim, 0mm)); font-size: 10px; }
 .receipt.w80 { width: calc(68mm + var(--receipt-trim, 0mm)); }
@@ -27,6 +27,8 @@
   html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; height: auto !important; min-height: 0 !important; }
   .no-print { display: none !important; }
   .receipt-page { min-height: 0 !important; height: auto; padding: 0; background: #fff; overflow: hidden; }
-  .receipt { margin: 0; box-shadow: none; padding: 2mm 1mm 0; break-inside: avoid; }
+  /* 8 mm of blank paper under the last line: the cutter sits a few millimetres after the print head, so without it the cut can run through the
+     "Thank you" line. Same bottom value as on screen, so the page height measured on screen (PrintControls) is the printed height. */
+  .receipt { margin: 0; box-shadow: none; padding: 2mm 1mm 8mm; break-inside: avoid; }
   .receipt, .receipt * { color: #000 !important; }
 }

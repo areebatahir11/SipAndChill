@@ -96,8 +96,17 @@ export class EscPos {
     return this.line(l.slice(0, space).padEnd(this.cols - r.length) + r);
   }
   feed(n = 1) { this.dots += LINE_DOTS * n; return this.raw(ESC, 0x64, Math.min(Math.max(n, 0), 255)); }
-  /** Feed to the cutter and make a partial cut. Printers without a cutter simply ignore it. */
-  cut() { return this.raw(GS, 0x56, 0x42, 0x00); }
+  /**
+   * Cut. Printers without a cutter simply ignore it. Three styles, because cheap printers differ in what they understand:
+   *   'feed'    GS V 66 0  feeds to the cutter by itself, then partial cut (standard; most printers).
+   *   'partial' GS V 1     older printers: cuts where the paper is, so feed enough lines BEFORE it (see CUT_FEED_LINES).
+   *   'full'    GS V 0     same as 'partial' but cuts all the way through.
+   */
+  cut(style = 'feed') {
+    if (style === 'partial') return this.raw(GS, 0x56, 0x01);
+    if (style === 'full') return this.raw(GS, 0x56, 0x00);
+    return this.raw(GS, 0x56, 0x42, 0x00);
+  }
   /** Opens the cash drawer connected to the printer (pin 2, 100 ms on / 500 ms off). */
   drawer() { return this.raw(ESC, 0x70, 0x00, 0x32, 0xfa); }
   /** 1-bit picture: GS v 0. `data` = rows of ceil(width/8) bytes, 1 = black dot. */
@@ -126,15 +135,21 @@ const STATUS = { PAID: 'PAID', PARTIAL: 'PARTIALLY PAID', UNPAID: 'UNPAID' };
 /**
  * Builds the print job for one receipt.
  * @param model   result of buildReceipt()
- * @param opts    { paper: 58|80, cut, drawer, copies, feedLines, picture(text, {bold, dots}) -> picture | null }
+ * @param opts    { paper: 58|80, cut, cutStyle: 'feed'|'partial'|'full', drawer, copies, feedLines, picture(text, {bold, dots}) -> picture | null }
  * @returns { bytes, lengthMm, receiptsPerRoll, copies }
  *          Every copy is a complete receipt (with its own cut), so copies=2 gives two tear-off slips.
  */
+export const CUT_STYLES = Object.freeze(['feed', 'partial', 'full']);
+/** Blank lines pushed out before the cut: 'feed' feeds to the cutter itself; the older styles need the paper moved first (~22 mm clears the blade). */
+export const feedBeforeCut = (style) => (style === 'partial' || style === 'full' ? 6 : 4);
+const cutStyleOf = (v) => (CUT_STYLES.includes(v) ? v : 'feed');
+
 export function receiptToEscPos(model, opts = {}) {
   const paper = normalizePaper(opts.paper);
   const cols = COLS[paper];
   const copies = Math.min(Math.max(Number(opts.copies) || 1, 1), 5);
-  const feedLines = Number.isFinite(opts.feedLines) ? opts.feedLines : 4;
+  const cutStyle = cutStyleOf(opts.cutStyle);
+  const feedLines = Number.isFinite(opts.feedLines) ? opts.feedLines : feedBeforeCut(cutStyle);
   const makePicture = typeof opts.picture === 'function' ? opts.picture : null;
 
   const out = [];
@@ -190,7 +205,7 @@ export function receiptToEscPos(model, opts = {}) {
     if (model.footer) put(model.footer, { align: 'center' });
 
     p.align('left').feed(feedLines);
-    if (opts.cut !== false) p.cut();
+    if (opts.cut !== false) p.cut(cutStyle);
     // The drawer opens once, on the first slip, and only for a sale that was actually paid.
     if (opts.drawer && copy === 0 && !model.cancelled && model.paymentStatus !== 'UNPAID') p.drawer();
 
@@ -215,6 +230,7 @@ export function receiptsPerRoll(lengthMm, paper = 80) {
 /** A short test slip: paper width ruler, cut and (optionally) the drawer, so staff can check the setup. */
 export function testSlip(opts = {}) {
   const paper = normalizePaper(opts.paper);
+  const cutStyle = cutStyleOf(opts.cutStyle);
   const cols = COLS[paper];
   const p = new EscPos({ cols }).init();
   p.align('center').bold(true).size(2, 2).line('PRINTER OK').size(1, 1).bold(false);
@@ -223,8 +239,8 @@ export function testSlip(opts = {}) {
   p.line('0123456789'.repeat(5).slice(0, cols));
   p.line('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef'.padEnd(cols, 'x').slice(0, cols));
   p.row('Left text', 'Right text');
-  p.hr('=').align('center').line(formatDate(new Date().toISOString())).align('left').feed(opts.feedLines ?? 4);
-  if (opts.cut !== false) p.cut();
+  p.hr('=').align('center').line(formatDate(new Date().toISOString())).align('left').feed(opts.feedLines ?? feedBeforeCut(cutStyle));
+  if (opts.cut !== false) p.cut(cutStyle);
   return { bytes: p.bytes(), lengthMm: p.lengthMm() };
 }
 

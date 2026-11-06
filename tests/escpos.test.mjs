@@ -140,3 +140,17 @@ test('test slip is a complete job', () => {
   assert.ok(has(t.bytes, 'PRINTER OK'));
   assert.deepEqual([...t.bytes].slice(-4), [0x1d, 0x56, 0x42, 0x00]);
 });
+
+test('cut styles: standard feeds+cuts by itself, older printers get 6 lines of feed and GS V 1 / GS V 0', () => {
+  const model = buildReceipt(order(), settings);
+  const tail = (r, n) => [...r.bytes.slice(-n)];
+  assert.deepEqual(tail(receiptToEscPos(model, { paper: 80 }), 4), [0x1d, 0x56, 0x42, 0x00]);               // default = unchanged
+  assert.deepEqual(tail(receiptToEscPos(model, { paper: 80, cutStyle: 'partial' }), 3), [0x1d, 0x56, 0x01]);
+  assert.deepEqual(tail(receiptToEscPos(model, { paper: 80, cutStyle: 'full' }), 3), [0x1d, 0x56, 0x00]);
+  assert.deepEqual(tail(receiptToEscPos(model, { paper: 80, cutStyle: 'nonsense' }), 4), [0x1d, 0x56, 0x42, 0x00]); // unknown -> standard
+  const feedOf = (r) => { const b = [...r.bytes]; const i = b.lastIndexOf(0x64); return b[i + 1]; };           // last ESC d n before the cut
+  assert.equal(feedOf(receiptToEscPos(model, { paper: 80 })), 4);
+  assert.equal(feedOf(receiptToEscPos(model, { paper: 80, cutStyle: 'partial' })), 6);
+  assert.deepEqual([...testSlip({ paper: 80, cutStyle: 'full' }).bytes.slice(-3)], [0x1d, 0x56, 0x00]);
+  assert.equal([...receiptToEscPos(model, { paper: 80, cut: false }).bytes].join(',').includes('29,86'), false);       // cut off = no cut command
+});

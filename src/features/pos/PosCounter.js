@@ -83,7 +83,7 @@ export default function PosCounter({ shopPaper = 80 }) {
       setDone({ order }); // figures shown come from the saved order, so a retried (duplicate) request still shows the truth
       // Receipt printer connected on this counter: print straight away (silent, no dialog). A failure never blocks the sale.
       const live = printerState.api.getSnapshot().config;
-      if (canPrint && printerState.api.isDirect(live) && live.autoPrint) printerState.api.printOrder(order.id).catch(() => {});
+      if (canPrint && printerState.api.isDirect(live) && live.autoPrint && printerState.api.getSnapshot().link !== 'blocked') printerState.api.printOrder(order.id).catch(() => {});
       setCart([]); setReceived(''); loadMenu();
     } catch (e) {
       setError(e.message); loadMenu(); // stock may have changed: refresh availability

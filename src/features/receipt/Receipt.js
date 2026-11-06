@@ -6,8 +6,8 @@ import { formatDate } from '@/lib/printing/escpos.mjs'; // short date in Pakista
 export default function Receipt({ model: r, width, orderId, autoprint }) {
   return (
     <div className="receipt-page">
-      {/* Only the margin is set here. "size: 58mm auto" is not valid CSS (browsers ignore the whole rule), so the paper size comes from the printer driver:
-          choose a roll paper of the same width there (see the hint under the print buttons). */}
+      {/* Only the margin is set here. "size: 58mm auto" is not valid CSS (browsers ignore the whole rule). The page HEIGHT is set from the real
+          receipt height by PrintControls (usePageFitsReceipt), so one order = one page = one cut when the driver cuts after each page. */}
       <style>{`@page { margin: 0; }`}</style>
       <PrintControls orderId={orderId} width={width} autoprint={autoprint} model={r} />
 

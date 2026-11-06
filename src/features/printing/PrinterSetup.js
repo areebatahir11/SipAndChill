@@ -41,21 +41,30 @@ const More = ({ title, children }) => (
  * All behaviour comes from usePrinter / printer.js (unchanged); this file is layout and wording only.
  */
 export default function PrinterSetup({ shopPaper }) {
-  const { config, status, direct, api: printer } = usePrinter();
+  const { config, status, direct, link, api: printer } = usePrinter();
   const [error, setError] = useState('');
   // Browser capabilities are only known on the client; reading them during the server render would not match.
   const [sup, setSup] = useState(null);
   useEffect(() => { setSup(printer.support()); }, [printer]);
   const can = sup || { usb: false, serial: false, secure: true };
-  const act = (fn) => async () => { setError(''); try { await fn(); } catch (e) { if (e?.name !== 'NotFoundError') setError(e.message || String(e)); } };
+  // A print error is already shown by the status line (e.shown): showing it here as well made every error appear twice.
+  const act = (fn) => async () => { setError(''); try { await fn(); } catch (e) { if (e?.name !== 'NotFoundError' && !e?.shown) setError(e.message || String(e)); } };
 
   const paper = config.paper === 'shop' ? shopPaper : Number(config.paper);
   const estimate = useMemo(() => receiptToEscPos(SAMPLE, { paper }), [paper]);
   const busy = status.state === 'printing';
 
-  const headline = direct ? 'Printer is ready' : config.mode === 'browser' ? 'Using the browser print window' : 'No printer connected yet';
-  const explain = direct
-    ? 'Receipts go straight to this printer.'
+  const usb = config.mode === 'usb';
+  const blocked = direct && usb && link === 'blocked';   // Chrome remembers the printer, but a Windows driver owns it
+  const missing = direct && usb && link === 'missing';   // remembered, but not plugged in / switched off
+  const checking = direct && usb && link === 'checking';
+  const working = direct && !blocked && !missing && !checking;
+  const headline = blocked ? 'Printer found, but Windows is blocking it'
+    : missing ? 'Printer not found'
+    : checking ? 'Checking the printer…'
+    : direct ? 'Printer is ready'
+    : config.mode === 'browser' ? 'Using the browser print window' : 'No printer connected yet';
+  const explain = direct ? 'Receipts go straight to this printer.'
     : config.mode === 'browser'
       ? 'A print window opens for every receipt. Connect a printer below to skip it.'
       : 'Connect it once on this counter. After that receipts print by themselves.';
@@ -68,7 +77,7 @@ export default function PrinterSetup({ shopPaper }) {
           <b className="block">{headline}</b>
           <small className="block text-graphite">{direct ? deviceLabel(config) : explain}</small>
         </div>
-        <Pill tone={direct ? 'ok' : 'off'}>{direct ? 'Connected' : 'Not connected'}</Pill>
+        <Pill tone={working ? 'ok' : blocked || missing ? 'alert' : 'off'}>{working ? 'Connected' : blocked ? 'Blocked' : missing ? 'Not found' : checking ? 'Checking' : 'Not connected'}</Pill>
       </div>
 
       {sup && !sup.secure && <Alert>Direct printing needs a secure page (https://). Open the app from its https address.</Alert>}
@@ -98,7 +107,35 @@ export default function PrinterSetup({ shopPaper }) {
         </div>
       )}
 
-      {direct && (
+      {blocked && (
+        <div className="grid gap-3 rounded-2xl border border-peach p-4">
+          <p className="m-0"><b>Why:</b> the Windows printer driver of this printer has taken the USB port, so the browser may not use it. Nothing is wrong with the printer or the software. Pick one:</p>
+          <div>
+            <Button variant="primary" onClick={act(async () => printer.updateConfig({ mode: 'browser', usb: null, serial: null }))}>Use the browser print window (works now)</Button>
+            <small className="mt-1.5 block text-graphite">A print window opens for each receipt. The paper is cut by the printer driver’s own setting (see “Paper roll and help”).</small>
+          </div>
+          <div>
+            <b>Or print and cut automatically (one-time setup on this PC)</b>
+            <ol className="mt-1 grid list-decimal gap-1 pl-5 text-graphite">
+              <li>Download <b>Zadig</b> (zadig.akeo.ie) and open it.</li>
+              <li>Menu <b>Options → List All Devices</b>. Choose the printer in the list (it is called “{deviceLabel(config)}” or “USB Printing Support”).</li>
+              <li>Pick <b>WinUSB</b> as the driver on the right, press <b>Replace Driver</b>, wait for “success”.</li>
+              <li>Unplug and replug the printer, then press <b>Check again</b> below.</li>
+            </ol>
+            <small className="mt-1 block text-graphite">After this, Windows no longer lists the printer for normal programs. Receipts go only through this app, which is what you want at the counter.</small>
+          </div>
+          <div><Button variant="secondary" onClick={act(printer.probe)}>Check again</Button></div>
+        </div>
+      )}
+
+      {missing && (
+        <div className="grid gap-2">
+          <Alert>The printer is not answering. Switch it on, check the USB cable, then try again.</Alert>
+          <div><Button variant="secondary" onClick={act(printer.probe)}>Check again</Button></div>
+        </div>
+      )}
+
+      {working && (
         <div className="grid gap-3">
           <div className="flex flex-wrap gap-2">
             <Button variant="primary" disabled={busy} onClick={act(() => printer.testPrint(shopPaper))}>{busy ? 'Printing…' : 'Print test slip'}</Button>
@@ -108,10 +145,10 @@ export default function PrinterSetup({ shopPaper }) {
         </div>
       )}
 
-      {status.message && <Alert tone={status.state === 'error' ? 'error' : 'success'}>{status.message}</Alert>}
+      {status.message && !(blocked && status.state === 'error') && <Alert tone={status.state === 'error' ? 'error' : 'success'}>{status.message}</Alert>}
       {error && <Alert>{error}</Alert>}
 
-      {direct && (
+      {working && (
         <div className="rounded-2xl border border-peach p-4">
           <Check checked={config.autoPrint} onChange={(v) => printer.updateConfig({ autoPrint: v })} hint="The receipt comes out the moment you tap Confirm order. You can still print again from Orders & Receipts.">
             <b>Print the receipt automatically after each order</b>
@@ -133,6 +170,16 @@ export default function PrinterSetup({ shopPaper }) {
           </Select>
         </Field>
         <Check checked={config.cut} onChange={(v) => printer.updateConfig({ cut: v })} hint="Printers without a cutter just ignore this.">Cut the paper after each receipt</Check>
+        {config.cut && (
+          <Field label="Cut style">
+            <Select value={config.cutStyle} onChange={(e) => printer.updateConfig({ cutStyle: e.target.value })}>
+              <option value="feed">Standard (recommended)</option>
+              <option value="partial">Older printer: feed, then partial cut</option>
+              <option value="full">Older printer: feed, then full cut</option>
+            </Select>
+            <small className="mt-1 block text-graphite">Leave on Standard. If the test slip prints but the paper is not cut, pick “Older printer”, press Print test slip again.</small>
+          </Field>
+        )}
         <Check checked={config.drawer} onChange={(v) => printer.updateConfig({ drawer: v })} hint="Needs a cash drawer plugged into the printer’s RJ11 socket.">Open the cash drawer with paid receipts</Check>
         <Check checked={config.pictures} onChange={(v) => printer.updateConfig({ pictures: v })} hint="Item names in Urdu or other scripts are printed as small pictures. Without this they print as “?”.">Print Urdu / non-English names</Check>
         <p className="text-[13px] text-graphite">These options are saved in this browser, so each counter can have its own printer.</p>
@@ -143,6 +190,7 @@ export default function PrinterSetup({ shopPaper }) {
         <p>The software has <b>no limit</b>: it prints as long as the printer has paper. A typical bill of 3 items on {paper} mm paper uses about <b>{(estimate.lengthMm / 10).toFixed(1)} cm</b>, so a standard {ROLL_METERS[paper]} m roll gives roughly <b>{estimate.receiptsPerRoll.toLocaleString()}</b> receipts. Use thermal paper; the printer needs no ink.</p>
         <ul className="grid list-disc gap-1.5 pl-5">
           <li><b>“Printer is being used by another program”</b> (Windows): Windows has claimed the USB printer with its own driver. Use the Bluetooth / COM-port option, or the browser print window, or install the WinUSB driver for the printer with the free Zadig tool, then connect again.</li>
+          <li><b>Paper is not cut (print window / Windows driver)</b>: the cut then comes from the printer driver, not from this app. Windows → Settings → Printers &amp; scanners → your printer → Printing preferences, and set the paper cutter to cut after each page or document (the wording differs per driver). A paper jam in the cutter also stops it: open the lid, remove the jammed strip, reload the roll.</li>
           <li><b>Print without the dialog (Windows, driver installed)</b>: in the print window choose the printer’s <b>80 mm</b> paper size, margins “None”, scale 100%. To skip the window, start Chrome with <code>--kiosk-printing</code> (add it to the end of the Chrome shortcut’s Target) and set this printer as the Windows default printer.</li>
           <li><b>Printer not in the list</b>: switch it on, use a data cable (not a charge-only cable), try another USB port. Use Chrome or Edge.</li>
           <li><b>Garbled text</b>: the printer may not speak ESC/POS (rare). Use the browser print window.</li>
