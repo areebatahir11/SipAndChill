@@ -30,6 +30,11 @@ export const cancelOrderSchema = z.object({
 
 export const listOrdersSchema = z.object({
   page: z.coerce.number().int().min(1).max(10000).default(1),
-  filter: z.enum(['all', 'paid', 'partial', 'unpaid', 'cancelled']).default('all'),
+  filter: z.enum(['all', 'paid', 'partial', 'unpaid', 'cancelled', 'print']).default('all'),
   q: z.string().trim().max(10).regex(/^\d*$/, 'Search by order number.').default(''),
+});
+
+/** What the print code reports about a print attempt. Nothing else can be sent: no totals, no payments. */
+export const printEventSchema = z.object({
+  event: z.enum(['sent', 'opened', 'confirmed', 'failed']),
 });

@@ -6,6 +6,7 @@ import { getOrder } from '@/modules/orders/service';
 import { Card, DataTable, PageHeader, Td } from '@/components/ui';
 import { OrderStatusPills } from '@/features/orders/OrderStatusPills';
 import OrderActions from '@/features/orders/OrderActions';
+import PrintStatusPill from '@/features/printing/PrintStatusPill';
 import { dateTime, money } from '@/lib/format';
 
 export default async function OrderDetailPage({ params }) {
@@ -20,6 +21,7 @@ export default async function OrderDetailPage({ params }) {
     <>
       <PageHeader title={`Order #${order.orderNo}`} sub={`${dateTime(order.createdAt)} · Cashier: ${order.cashierName}`}>
         <OrderStatusPills order={order} />
+        {has(P.RECEIPTS_PRINT) && <PrintStatusPill status={order.printStatus} attempts={order.printAttempts} />}
         <OrderActions orderId={order.id} outstanding={order.outstanding} canPay={open && order.paymentStatus !== 'PAID' && has(P.PAYMENTS_RECORD)} canCancel={open && has(P.ORDERS_CANCEL)} canPrint={has(P.RECEIPTS_PRINT)} />
       </PageHeader>
 

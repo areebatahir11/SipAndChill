@@ -6,6 +6,7 @@ import { hasPermission, PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import { calcOrder, calcPayment, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
 import { activePromotion, currentOrUpcoming, discountLabel, orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
 import { consumption, fromMilli, maxServings, mergeLines, toMilli } from '@/lib/orders/recipe.mjs';
+import { ATTENTION_GRACE_MS, ATTENTION_WINDOW_MS, nextPrintState, PRINT_STATUS } from '@/lib/orders/print-status.mjs';
 
 const TX = { maxWait: 5000, timeout: 15000 };
 const PAGE_SIZE = 20;
@@ -35,6 +36,10 @@ const toOrder = (o) => ({
   cancelledAt: o.cancelledAt,
   cancelReason: o.cancelReason,
   createdAt: o.createdAt,
+  printStatus: o.printStatus,
+  printAttempts: o.printAttempts,
+  lastPrintAt: o.lastPrintAt,
+  printConfirmedAt: o.printConfirmedAt,
   items: o.items?.map((i) => ({ id: i.id, productId: i.productId, name: i.name, unitPrice: dec(i.unitPrice), quantity: i.quantity, lineTotal: dec(i.lineTotal) })),
   payments: o.payments?.map((p) => ({ id: p.id, method: p.method, amountReceived: dec(p.amountReceived), amountApplied: dec(p.amountApplied), changeReturned: dec(p.changeReturned), createdAt: p.createdAt })),
 });
@@ -170,7 +175,10 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
 export async function listOrders(auth, { page = 1, filter = 'all', q = '' } = {}) {
   const where = {
     ...scope(auth),
-    ...(filter === 'cancelled' ? { status: 'CANCELLED' } : filter === 'all' ? {} : { status: 'COMPLETED', paymentStatus: filter.toUpperCase() }),
+    ...(filter === 'cancelled' ? { status: 'CANCELLED' }
+      : filter === 'print' ? { status: 'COMPLETED', printStatus: { in: [PRINT_STATUS.PROBLEM, PRINT_STATUS.DIALOG_OPENED] } } // receipts that failed or nobody confirmed
+      : filter === 'all' ? {}
+      : { status: 'COMPLETED', paymentStatus: filter.toUpperCase() }),
     ...(q ? { orderNo: Number(q) > MAX_ORDER_NO ? -1 : Number(q) } : {}), // -1 = matches nothing (no such order number)
   };
   const [rows, total] = await Promise.all([
@@ -182,6 +190,50 @@ export async function listOrders(auth, { page = 1, filter = 'all', q = '' } = {}
 
 export async function getOrder(auth, id) {
   return toOrder(await findOrder(auth, id));
+}
+
+// ---------------------------------------------------------------------------
+// Receipt print tracking (browser printing). Touches ONLY the four print columns of one order:
+// a print or reprint never creates an order, never changes payments, totals or stock.
+// ---------------------------------------------------------------------------
+const printView = (o) => ({ id: o.id, orderNo: o.orderNo, printStatus: o.printStatus, printAttempts: o.printAttempts, lastPrintAt: o.lastPrintAt, printConfirmedAt: o.printConfirmedAt });
+const PRINT_SELECT = { id: true, orderNo: true, printStatus: true, printAttempts: true, lastPrintAt: true, printConfirmedAt: true };
+
+/** event: 'sent' (printer accepted the data) | 'opened' (browser print window) | 'confirmed' (a person says it printed) | 'failed'. */
+export async function recordPrintEvent(auth, id, event) {
+  const where = { id, ...scope(auth) }; // same tenant + cashier scope as viewing the order: one business can never touch another's orders
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await prisma.order.findFirst({ where, select: PRINT_SELECT });
+    if (!current) throw new HttpError(404, 'Order not found.', 'NOT_FOUND');
+    const { printAttempts, ...change } = nextPrintState(current, event);
+    // Optimistic guard on the status we just read: two tabs reporting at once cannot overwrite each other's decision.
+    const done = await prisma.order.updateMany({
+      where: { ...where, printStatus: current.printStatus },
+      data: { ...change, ...(printAttempts !== undefined ? { printAttempts: { increment: 1 } } : {}) },
+    });
+    if (done.count === 1) {
+      if (event === 'confirmed' || event === 'failed') await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: `order.receipt_${event}`, entity: 'Order', entityId: id, metadata: { orderNo: current.orderNo } });
+      return printView(await prisma.order.findFirst({ where, select: PRINT_SELECT }));
+    }
+  }
+  throw new HttpError(409, 'This order was just updated. Please try again.', 'CONFLICT');
+}
+
+/**
+ * Recent completed orders whose receipt was never confirmed: print failed / "did not print", or the dialog was opened
+ * and nobody confirmed it for more than a couple of minutes. Cashiers only see their own orders (scope()).
+ */
+export async function listPrintAttention(auth) {
+  const now = Date.now();
+  const where = {
+    ...scope(auth), status: 'COMPLETED', lastPrintAt: { gte: new Date(now - ATTENTION_WINDOW_MS) },
+    OR: [{ printStatus: PRINT_STATUS.PROBLEM }, { printStatus: PRINT_STATUS.DIALOG_OPENED, lastPrintAt: { lt: new Date(now - ATTENTION_GRACE_MS) } }],
+  };
+  const [count, rows] = await Promise.all([
+    prisma.order.count({ where }),
+    prisma.order.findMany({ where, orderBy: { lastPrintAt: 'desc' }, take: 5, select: PRINT_SELECT }),
+  ]);
+  return { count, orders: rows.map(printView) };
 }
 
 // ---------------------------------------------------------------------------

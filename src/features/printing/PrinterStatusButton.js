@@ -11,16 +11,18 @@ import PrinterIcon from './PrinterIcon';
  * instead of a separate page the owner has to find.
  */
 export default function PrinterStatusButton({ shopPaper }) {
-  const { direct, config, hydrated, link } = usePrinter();
+  const { direct, config, hydrated, link, status } = usePrinter();
   const [open, setOpen] = useState(false);
 
   // Before the saved settings are read (first paint) show a neutral label, not a false "not connected".
   const usb = config.mode === 'usb';
-  const problem = hydrated && direct && usb && (link === 'blocked' || link === 'missing');
+  const lastFailed = hydrated && direct && status.state === 'error'; // "connected" is not "the last receipt printed"
+  const problem = hydrated && direct && ((usb && (link === 'blocked' || link === 'missing')) || lastFailed);
   const ready = hydrated && direct && !problem && !(usb && link === 'checking');
   const label = !hydrated ? 'Printer'
     : link === 'blocked' && direct && usb ? 'Printer blocked'
     : link === 'missing' && direct && usb ? 'Printer not found'
+    : lastFailed ? 'Print failed: check printer'
     : direct ? (usb && link === 'checking' ? 'Checking printer…' : 'Printer ready')
     : config.mode === 'browser' ? 'Print window' : 'Connect printer';
   const variant = (hydrated && config.mode === 'none') || problem ? 'accent' : 'secondary';

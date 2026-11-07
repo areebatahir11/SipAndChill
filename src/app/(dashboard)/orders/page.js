@@ -6,11 +6,14 @@ import { listOrders } from '@/modules/orders/service';
 import { getSettings } from '@/modules/settings/service';
 import { normalizeWidth } from '@/lib/orders/receipt.mjs';
 import PrinterStatusButton from '@/features/printing/PrinterStatusButton';
+import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
+import PrintStatusPill from '@/features/printing/PrintStatusPill';
+import PrintAttentionBanner from '@/features/printing/PrintAttentionBanner';
 import { Button, ButtonLink, DataTable, Input, PageHeader, Td } from '@/components/ui';
 import { OrderStatusPills } from '@/features/orders/OrderStatusPills';
 import { dateTime, money } from '@/lib/format';
 
-const FILTERS = [['all', 'All'], ['paid', 'Paid'], ['partial', 'Partially paid'], ['unpaid', 'Unpaid'], ['cancelled', 'Cancelled']];
+const FILTERS = [['all', 'All'], ['paid', 'Paid'], ['partial', 'Partially paid'], ['unpaid', 'Unpaid'], ['cancelled', 'Cancelled'], ['print', 'Print problems']];
 
 export default async function OrdersPage({ searchParams }) {
   const auth = await requirePage(P.ORDERS_VIEW);
@@ -32,12 +35,13 @@ export default async function OrdersPage({ searchParams }) {
         </form>
       </PageHeader>
       {!parsed.success && <p className="mb-3 text-graphite">Search by order number only.</p>}
+      {canPrint && <PrintAttentionBanner />}
 
       <nav className="mb-4 flex flex-wrap gap-2" aria-label="Filter orders">
         {FILTERS.map(([k, label]) => <ButtonLink key={k} href={href({ filter: k, page: '1' })} variant={query.filter === k ? 'primary' : 'secondary'} size="sm" aria-current={query.filter === k ? 'page' : undefined}>{label}</ButtonLink>)}
       </nav>
 
-      <DataTable head={['Order', 'Date & time', 'Cashier', 'Total', 'Paid', 'Status', '']} emptyText={orders.length ? undefined : 'No orders found.'}>
+      <DataTable head={canPrint ? ['Order', 'Date & time', 'Cashier', 'Total', 'Paid', 'Status', 'Receipt', ''] : ['Order', 'Date & time', 'Cashier', 'Total', 'Paid', 'Status', '']} emptyText={orders.length ? undefined : query.filter === 'print' ? 'No print problems. Nothing to check.' : 'No orders found.'}>
         {orders.map((o) => (
           <tr key={o.id}>
             <Td><b>#{o.orderNo}</b></Td>
@@ -46,7 +50,13 @@ export default async function OrdersPage({ searchParams }) {
             <Td>{money(o.total)}</Td>
             <Td>{money(o.amountPaid)}</Td>
             <Td><OrderStatusPills order={o} /></Td>
-            <Td className="text-right"><Link className="font-medium underline" href={`/orders/${o.id}`}>View</Link></Td>
+            {canPrint && <Td><PrintStatusPill status={o.printStatus} attempts={o.printAttempts} /></Td>}
+            <Td className="text-right">
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                {canPrint && <PrintReceiptButton orderId={o.id} size="sm" label={o.printAttempts > 0 ? 'Reprint' : 'Print'} />}
+                <Link className="font-medium underline" href={`/orders/${o.id}`}>View</Link>
+              </div>
+            </Td>
           </tr>
         ))}
       </DataTable>

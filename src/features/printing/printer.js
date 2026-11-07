@@ -11,6 +11,7 @@
 import { chunk, drawerOnly, receiptToEscPos, testSlip } from '@/lib/printing/escpos.mjs';
 import { api } from '@/lib/api-client';
 import { pictureFromText } from './raster';
+import { reportPrint } from './print-report';
 
 const KEY = 'sipchill.printer.v1';
 export const BAUD_RATES = [9600, 19200, 38400, 57600, 115200];
@@ -221,17 +222,20 @@ export async function probe() {
   return snapshot.link;
 }
 
-async function run(label, build) {
+/** `orderId` (optional): the result is also saved on that order, so a failure is still visible after the dialog is closed. */
+async function run(label, build, orderId = null) {
   setStatus('printing', `${label}…`);
   try {
     const result = await enqueue(async () => { const job = build(); await sendBytes(job.bytes); return job; });
     if (snapshot.config.mode === 'usb') setLink('ok');
     setStatus('ok', `${label}: sent to the printer.`);
+    reportPrint(orderId, 'sent'); // the printer accepted the data (it cannot report paper-out, so this is "sent", not "printed OK")
     return result;
   } catch (e) {
     if (snapshot.config.mode === 'usb') setLink(e?.code === 'NOT_FOUND' ? 'missing' : isClaimError(e) ? 'blocked' : snapshot.link);
     const message = explain(e);
     setStatus('error', message);
+    reportPrint(orderId, 'failed');
     const shown = new Error(message);
     shown.shown = true; // the status line already shows it: callers must not show it a second time
     throw shown;
@@ -243,18 +247,27 @@ async function run(label, build) {
 const paperFor = (config, shopPaper) => (config.paper === 'shop' ? shopPaper : Number(config.paper));
 
 /** Prints a receipt model (see buildReceipt). Resolves with { lengthMm, receiptsPerRoll }. */
-export function printModel(model, shopPaper = 80) {
+export function printModel(model, shopPaper = 80, orderId = null) {
   const { config } = snapshot;
   return run('Receipt', () => receiptToEscPos(model, {
     paper: paperFor(config, shopPaper), cut: config.cut, cutStyle: config.cutStyle, drawer: config.drawer, copies: config.copies,
     picture: config.pictures ? pictureFromText : null,
-  }));
+  }), orderId);
 }
 
 /** Loads the saved order's receipt from the server and prints it. */
 export async function printOrder(orderId) {
-  const { model, paper } = await api(`/api/orders/${orderId}/receipt`);
-  return printModel(model, paper);
+  let data;
+  try { data = await api(`/api/orders/${orderId}/receipt`); } catch (e) {
+    // Before this, a receipt that could not even be loaded failed silently. Now it is shown and recorded.
+    const message = `Could not load the receipt (${e?.message || 'network error'}). Check the internet connection and press Print again.`;
+    setStatus('error', message);
+    reportPrint(orderId, 'failed');
+    const shown = new Error(message);
+    shown.shown = true;
+    throw shown;
+  }
+  return printModel(data.model, data.paper, orderId);
 }
 
 export const testPrint = (shopPaper = 80) => {

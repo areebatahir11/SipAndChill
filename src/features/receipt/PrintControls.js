@@ -58,7 +58,7 @@ export default function PrintControls({ orderId, width, autoprint, model }) {
     if (direct) {
       if (fired.current) return;
       fired.current = true;
-      printer.printModel(model, width).catch(() => {}); // the error is shown below
+      printer.printModel(model, width, orderId).catch(() => {}); // the error is shown below and saved on the order
       return;
     }
     // Browser print window. The timer + its cleanup live together here (no "already fired" guard around them): in development
@@ -76,7 +76,7 @@ export default function PrintControls({ orderId, width, autoprint, model }) {
   return (
     <div className="no-print toolbar">
       {direct && (
-        <button type="button" disabled={busy} className={`${btn} border-slate bg-slate text-blush`} onClick={() => printer.printModel(model, width).catch(() => {})}>
+        <button type="button" disabled={busy} className={`${btn} border-slate bg-slate text-blush`} onClick={() => printer.printModel(model, width, orderId).catch(() => {})}>
           {busy ? 'Printing…' : 'Print to receipt printer'}
         </button>
       )}

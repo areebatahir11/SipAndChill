@@ -390,6 +390,11 @@ model Order {
   subtotal        Decimal   @db.Decimal(12, 2)
   discount        Decimal   @default(0) @db.Decimal(12, 2) // promotion discount applied by the server (see lib/promotions); 0 = none
   discountLabel   String? // snapshot of the promotion name, e.g. "20% OFF", so receipts reprint identically later
+  // Receipt printing. "What we know", never a promise that paper came out (see src/lib/orders/print-status.mjs).
+  printStatus      String    @default("NOT_REQUESTED") // NOT_REQUESTED | SENT | CONFIRMED | PROBLEM | DIALOG_OPENED
+  printAttempts    Int       @default(0)
+  lastPrintAt      DateTime?
+  printConfirmedAt DateTime?
   total           Decimal   @db.Decimal(12, 2)
   amountPaid      Decimal   @default(0) @db.Decimal(12, 2) // cash actually applied to this order (never includes change)
   cashierId       String?
@@ -408,6 +413,7 @@ model Order {
   @@unique([tenantId, clientRequestId])
   @@index([tenantId, createdAt])
   @@index([tenantId, status, createdAt])
+  @@index([tenantId, printStatus, lastPrintAt])
   @@index([cashierId])
 }
 

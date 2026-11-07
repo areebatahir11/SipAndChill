@@ -8,6 +8,7 @@ import { calcOrder, calcPayment, fromMinor, toMinor } from '@/lib/money.mjs';
 import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import { money } from '@/lib/format';
 import usePrinter from '@/features/printing/usePrinter';
+import PrintAttentionBanner from '@/features/printing/PrintAttentionBanner';
 import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
 import PrinterStatusButton from '@/features/printing/PrinterStatusButton';
 import PromoBanner from '@/features/promotions/PromoBanner';
@@ -106,6 +107,7 @@ export default function PosCounter({ shopPaper = 80 }) {
       <PageHeader title="Take Orders" sub="Tap items to build the order, enter the cash, confirm.">
         {canPrint && <PrinterStatusButton shopPaper={shopPaper} />}
       </PageHeader>
+      {canPrint && <PrintAttentionBanner />}
       {loadError && <Alert className="mb-4">{loadError}</Alert>}
       <PromoBanner promotion={promo.promotion} upcoming={promo.upcoming} className="mb-4" />
 
