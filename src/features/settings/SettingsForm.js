@@ -40,7 +40,10 @@ export default function SettingsForm() {
       {form && (
         <Card className="max-w-[520px]">
           <Form onSubmit={submit}>
-            <Field label="Business name"><Input required value={form.businessName} onChange={set('businessName')} /></Field>
+            <Field label="Business name">
+              <Input required minLength={2} maxLength={80} value={form.businessName} onChange={set('businessName')} />
+              <small className="font-normal text-graphite">Your real shop name. It shows on every receipt and at the top of the menu. Only the Business Owner can change it.</small>
+            </Field>
             <Field label="Phone (on receipt)"><Input value={form.phone} onChange={set('phone')} placeholder="0300-0000000" /></Field>
             <Field label="Address (on receipt)"><Input value={form.address} onChange={set('address')} /></Field>
             <Field label="Receipt paper width">
