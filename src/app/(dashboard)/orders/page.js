@@ -11,7 +11,7 @@ import PrintStatusPill from '@/features/printing/PrintStatusPill';
 import PrintAttentionBanner from '@/features/printing/PrintAttentionBanner';
 import { Button, ButtonLink, DataTable, Input, PageHeader, Td } from '@/components/ui';
 import { OrderStatusPills } from '@/features/orders/OrderStatusPills';
-import { dateTime, money } from '@/lib/format';
+import { dateOnly, dateTime, money } from '@/lib/format';
 
 const FILTERS = [['all', 'All'], ['paid', 'Paid'], ['partial', 'Partially paid'], ['unpaid', 'Unpaid'], ['cancelled', 'Cancelled'], ['print', 'Print problems']];
 
@@ -22,19 +22,21 @@ export default async function OrdersPage({ searchParams }) {
   const { orders, total, page, pages } = await listOrders(auth, query);
   const canPrint = hasPermission(auth.permissions, P.RECEIPTS_PRINT);
   const shopPaper = canPrint ? normalizeWidth((await getSettings(auth.tenantId)).receiptWidthMm) : 80;
-  const href = (over) => { const u = new URLSearchParams({ filter: query.filter, ...(query.q ? { q: query.q } : {}), page: String(page), ...over }); return `/orders?${u}`; };
+  const href = (over) => { const u = new URLSearchParams({ filter: query.filter, ...(query.q ? { q: query.q } : {}), ...(query.date ? { date: query.date } : {}), page: String(page), ...over }); return `/orders?${u}`; };
 
   return (
     <>
-      <PageHeader title="Orders & Receipts" sub={`${total} order${total === 1 ? '' : 's'}`}>
+      <PageHeader title="Orders & Receipts" sub={`${total} order${total === 1 ? '' : 's'}${query.date ? ` on ${dateOnly(query.date)}` : ' · order numbers restart at #1 every day'}`}>
         {canPrint && <PrinterStatusButton shopPaper={shopPaper} />}
         <form action="/orders" className="flex gap-2">
           <input type="hidden" name="filter" value={query.filter} />
+          <Input name="date" type="date" defaultValue={query.date} aria-label="Show one day only" className="w-40" />
           <Input name="q" inputMode="numeric" defaultValue={query.q} placeholder="Order number" aria-label="Search by order number" className="w-40" />
           <Button type="submit">Search</Button>
         </form>
       </PageHeader>
-      {!parsed.success && <p className="mb-3 text-graphite">Search by order number only.</p>}
+      {!parsed.success && <p className="mb-3 text-graphite">Search by order number, and pick a valid date.</p>}
+      {query.date && <p className="mb-3"><Link className="font-medium underline" href={href({ date: '', page: '1' })}>Show all days</Link></p>}
       {canPrint && <PrintAttentionBanner />}
 
       <nav className="mb-4 flex flex-wrap gap-2" aria-label="Filter orders">

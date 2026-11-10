@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { toMinor } from '@/lib/money.mjs';
+import { parseBusinessDay } from '@/lib/orders/dates.mjs';
 
 /** Money from a form/JSON: string or number, max 2 decimals, never negative. Output is integer paisa. */
 const money = (label) =>
@@ -32,6 +33,8 @@ export const listOrdersSchema = z.object({
   page: z.coerce.number().int().min(1).max(10000).default(1),
   filter: z.enum(['all', 'paid', 'partial', 'unpaid', 'cancelled', 'print']).default('all'),
   q: z.string().trim().max(10).regex(/^\d*$/, 'Search by order number.').default(''),
+  // Optional: show one business day only (YYYY-MM-DD). Empty = all days.
+  date: z.string().trim().default('').refine((v) => v === '' || parseBusinessDay(v) !== null, 'Pick a valid date.'),
 });
 
 /** What the print code reports about a print attempt. Nothing else can be sent: no totals, no payments. */

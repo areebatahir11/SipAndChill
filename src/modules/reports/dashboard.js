@@ -74,7 +74,7 @@ export async function getDashboard(tenantId, range) {
     change: { sales: pct(current.sales, previous.sales), orders: pct(current.orders, previous.orders) },
     chart: { bucket, points },
     bestSellers: best.map((b) => ({ name: b.name, qty: n(b.qty), revenue: n(b.revenue) })),
-    recent: recent.map((o) => ({ id: o.id, orderNo: o.orderNo, createdAt: o.createdAt, total: n(o.total), status: o.status, paymentStatus: o.paymentStatus })),
+    recent: recent.map((o) => ({ id: o.id, orderNo: o.dailyNo, createdAt: o.createdAt, total: n(o.total), status: o.status, paymentStatus: o.paymentStatus })),
     inventory: { low: low.slice(0, 8), lowCount: low.length, out: out.slice(0, 8), outCount: out.length },
   };
 }

@@ -14,6 +14,17 @@ const parts = (date, off) => { const l = new Date(date.getTime() + off * 60000);
 /** Local date string YYYY-MM-DD for an instant. */
 export const localDateString = (date, off = BUSINESS_TZ.offsetMin) => new Date(date.getTime() + off * 60000).toISOString().slice(0, 10);
 
+/** The shop's business day for an instant, as the UTC-midnight Date Prisma stores in a DATE column. */
+export const businessDay = (date = new Date(), off = BUSINESS_TZ.offsetMin) => new Date(`${localDateString(date, off)}T00:00:00.000Z`);
+
+/** Parses a YYYY-MM-DD string into the same DATE value, or null if it is not a real calendar day (e.g. 2026-02-31). */
+export function parseBusinessDay(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? '');
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.toISOString().slice(0, 10) === s ? d : null;
+}
+
 function parseDay(s, off) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? '');
   if (!m) return null;

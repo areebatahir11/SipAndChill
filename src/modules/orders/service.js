@@ -6,11 +6,12 @@ import { hasPermission, PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import { calcOrder, calcPayment, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
 import { activePromotion, currentOrUpcoming, discountLabel, orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
 import { consumption, fromMilli, maxServings, mergeLines, toMilli } from '@/lib/orders/recipe.mjs';
+import { businessDay, parseBusinessDay } from '@/lib/orders/dates.mjs';
 import { ATTENTION_GRACE_MS, ATTENTION_WINDOW_MS, nextPrintState, PRINT_STATUS } from '@/lib/orders/print-status.mjs';
 
 const TX = { maxWait: 5000, timeout: 15000 };
 const PAGE_SIZE = 20;
-const MAX_ORDER_NO = 2_147_483_647; // Order.orderNo is a 32-bit INT; a larger search number would make the database query fail
+const MAX_ORDER_NO = 2_147_483_647; // Order.dailyNo is a 32-bit INT; a larger search number would make the database query fail
 const dec = (d) => d.toFixed(2);
 
 // ---------------------------------------------------------------------------
@@ -23,7 +24,9 @@ const orderInclude = {
 
 const toOrder = (o) => ({
   id: o.id,
-  orderNo: o.orderNo,
+  orderNo: o.dailyNo, // the number people see: restarts at 1 every business day
+  businessDate: o.businessDate ? o.businessDate.toISOString().slice(0, 10) : null,
+  seqNo: o.orderNo, // lifetime sequence (internal, never reused)
   status: o.status,
   paymentStatus: o.paymentStatus,
   subtotal: dec(o.subtotal),
@@ -124,14 +127,19 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
       if (calc.totalMinor > MAX_MINOR) throw new HttpError(400, 'This order total is too large. Please reduce the quantities.', 'TOTAL_TOO_LARGE');
       const pay = calcPayment(calc.totalMinor, 0, amountReceived);
 
-      // 3. Order number (the row lock also serialises concurrent orders of one tenant).
+      // 3. Order numbers. The upsert row-locks this tenant's settings until commit, so concurrent orders are serialised.
+      //    orderNo = lifetime sequence (never reused). dailyNo = 1,2,3... within today's business day (Asia/Karachi), restarting at 1 each new day.
+      const now = new Date();
+      const businessDate = businessDay(now);
       const settings = await tx.tenantSettings.upsert({ where: { tenantId: auth.tenantId }, update: { nextOrderNo: { increment: 1 } }, create: { tenantId: auth.tenantId, nextOrderNo: 2 } });
       const orderNo = settings.nextOrderNo - 1;
+      const last = await tx.order.aggregate({ where: { tenantId: auth.tenantId, businessDate }, _max: { dailyNo: true } }); // cancelled orders keep their number too
+      const dailyNo = (last._max.dailyNo ?? 0) + 1;
 
       // 4. Order + item snapshots + payment.
       const created = await tx.order.create({
         data: {
-          tenantId: auth.tenantId, orderNo, clientRequestId,
+          tenantId: auth.tenantId, orderNo, businessDate, dailyNo, createdAt: now, clientRequestId,
           status: 'COMPLETED', paymentStatus: pay.status,
           subtotal: fromMinor(calc.subtotalMinor), discount: fromMinor(calc.discountMinor), discountLabel: calc.discountMinor > 0 ? discountLabel(promo) : null, total: fromMinor(calc.totalMinor),
           amountPaid: fromMinor(pay.paidMinor),
@@ -152,12 +160,12 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
           const ing = await tx.ingredient.findFirst({ where: { id: ingredientId, tenantId: auth.tenantId }, select: { name: true, stock: true, unit: true } });
           throw new HttpError(409, `Not enough ${ing?.name ?? 'stock'}: need ${qty} ${ing?.unit ?? ''}, only ${ing ? Number(ing.stock) : 0} left.`.replace(/ +/g, ' '), 'INSUFFICIENT_STOCK');
         }
-        await tx.stockMovement.create({ data: { tenantId: auth.tenantId, ingredientId, type: 'USAGE', quantity: `-${qty}`, note: `Order #${orderNo}`, userId: auth.user.id, orderId: created.id } });
+        await tx.stockMovement.create({ data: { tenantId: auth.tenantId, ingredientId, type: 'USAGE', quantity: `-${qty}`, note: `Order #${dailyNo} (${businessDate.toISOString().slice(0, 10)})`, userId: auth.user.id, orderId: created.id } });
       }
       return created;
     }, TX);
 
-    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus } });
+    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, dailyNo: order.dailyNo, businessDate: order.businessDate.toISOString().slice(0, 10), total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus } });
     return { order: toOrder(order), duplicate: false };
   } catch (e) {
     // Two identical requests raced: the loser hits the unique key, rolls back, and returns the winner's order.
@@ -172,17 +180,18 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
 // ---------------------------------------------------------------------------
 // History, detail
 // ---------------------------------------------------------------------------
-export async function listOrders(auth, { page = 1, filter = 'all', q = '' } = {}) {
+export async function listOrders(auth, { page = 1, filter = 'all', q = '', date = '' } = {}) {
   const where = {
     ...scope(auth),
+    ...(date ? { businessDate: parseBusinessDay(date) } : {}), // one business day (the number below restarts every day)
     ...(filter === 'cancelled' ? { status: 'CANCELLED' }
       : filter === 'print' ? { status: 'COMPLETED', printStatus: { in: [PRINT_STATUS.PROBLEM, PRINT_STATUS.DIALOG_OPENED] } } // receipts that failed or nobody confirmed
       : filter === 'all' ? {}
       : { status: 'COMPLETED', paymentStatus: filter.toUpperCase() }),
-    ...(q ? { orderNo: Number(q) > MAX_ORDER_NO ? -1 : Number(q) } : {}), // -1 = matches nothing (no such order number)
+    ...(q ? { dailyNo: Number(q) > MAX_ORDER_NO ? -1 : Number(q) } : {}), // -1 = matches nothing (no such order number)
   };
   const [rows, total] = await Promise.all([
-    prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
+    prisma.order.findMany({ where, orderBy: [{ businessDate: 'desc' }, { dailyNo: 'desc' }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
     prisma.order.count({ where }),
   ]);
   return { orders: rows.map(toOrder), total, page, pageSize: PAGE_SIZE, pages: Math.max(Math.ceil(total / PAGE_SIZE), 1) };
@@ -196,8 +205,8 @@ export async function getOrder(auth, id) {
 // Receipt print tracking (browser printing). Touches ONLY the four print columns of one order:
 // a print or reprint never creates an order, never changes payments, totals or stock.
 // ---------------------------------------------------------------------------
-const printView = (o) => ({ id: o.id, orderNo: o.orderNo, printStatus: o.printStatus, printAttempts: o.printAttempts, lastPrintAt: o.lastPrintAt, printConfirmedAt: o.printConfirmedAt });
-const PRINT_SELECT = { id: true, orderNo: true, printStatus: true, printAttempts: true, lastPrintAt: true, printConfirmedAt: true };
+const printView = (o) => ({ id: o.id, orderNo: o.dailyNo, businessDate: o.businessDate ? o.businessDate.toISOString().slice(0, 10) : null, printStatus: o.printStatus, printAttempts: o.printAttempts, lastPrintAt: o.lastPrintAt, printConfirmedAt: o.printConfirmedAt });
+const PRINT_SELECT = { id: true, dailyNo: true, businessDate: true, printStatus: true, printAttempts: true, lastPrintAt: true, printConfirmedAt: true };
 
 /** event: 'sent' (printer accepted the data) | 'opened' (browser print window) | 'confirmed' (a person says it printed) | 'failed'. */
 export async function recordPrintEvent(auth, id, event) {
@@ -212,7 +221,7 @@ export async function recordPrintEvent(auth, id, event) {
       data: { ...change, ...(printAttempts !== undefined ? { printAttempts: { increment: 1 } } : {}) },
     });
     if (done.count === 1) {
-      if (event === 'confirmed' || event === 'failed') await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: `order.receipt_${event}`, entity: 'Order', entityId: id, metadata: { orderNo: current.orderNo } });
+      if (event === 'confirmed' || event === 'failed') await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: `order.receipt_${event}`, entity: 'Order', entityId: id, metadata: { dailyNo: current.dailyNo, businessDate: current.businessDate.toISOString().slice(0, 10) } });
       return printView(await prisma.order.findFirst({ where, select: PRINT_SELECT }));
     }
   }
@@ -276,7 +285,7 @@ export async function cancelOrder(auth, id, { reason, restock }) {
       for (const m of used) {
         const qty = m.quantity.negated().toString();
         await tx.ingredient.update({ where: { id: m.ingredientId }, data: { stock: { increment: qty } } });
-        await tx.stockMovement.create({ data: { tenantId: auth.tenantId, ingredientId: m.ingredientId, type: 'ORDER_CANCEL', quantity: qty, note: `Order #${o.orderNo} cancelled`, userId: auth.user.id, orderId: id } });
+        await tx.stockMovement.create({ data: { tenantId: auth.tenantId, ingredientId: m.ingredientId, type: 'ORDER_CANCEL', quantity: qty, note: `Order #${o.dailyNo} (${o.businessDate.toISOString().slice(0, 10)}) cancelled`, userId: auth.user.id, orderId: id } });
       }
     }
   }, TX);

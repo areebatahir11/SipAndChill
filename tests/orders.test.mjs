@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { toMinor, fromMinor, calcOrder, calcPayment, paymentStatus } from '../src/lib/money.mjs';
 import { consumption, maxServings, mergeLines, toMilli } from '../src/lib/orders/recipe.mjs';
-import { resolveRange, bucketFor, localDateString } from '../src/lib/orders/dates.mjs';
+import { resolveRange, bucketFor, localDateString, businessDay, parseBusinessDay } from '../src/lib/orders/dates.mjs';
 import { buildReceipt, normalizeWidth } from '../src/lib/orders/receipt.mjs';
 
 // ---------- money ----------
@@ -156,4 +156,17 @@ test('receipt for a partial payment shows outstanding, not negative change', () 
 });
 test('receipt width accepts only 58 or 80', () => {
   assert.equal(normalizeWidth('58'), 58); assert.equal(normalizeWidth(80), 80); assert.equal(normalizeWidth('70'), 80); assert.equal(normalizeWidth(undefined), 80);
+});
+
+// ---------- per-day order numbers ----------
+test('business day follows Pakistan time, so #1 restarts at local midnight (not UTC midnight)', () => {
+  // 2026-11-09 18:59 UTC = 23:59 in Karachi -> still the 9th; one minute later it is the 10th.
+  assert.equal(businessDay(new Date('2026-11-09T18:59:00Z')).toISOString(), '2026-11-09T00:00:00.000Z');
+  assert.equal(businessDay(new Date('2026-11-09T19:00:00Z')).toISOString(), '2026-11-10T00:00:00.000Z');
+  assert.equal(businessDay(new Date('2026-11-09T23:38:00+05:00')).toISOString().slice(0, 10), '2026-11-09');
+});
+test('parseBusinessDay accepts real dates only', () => {
+  assert.equal(parseBusinessDay('2026-11-10').toISOString().slice(0, 10), '2026-11-10');
+  assert.equal(parseBusinessDay('2026-02-31'), null);
+  assert.equal(parseBusinessDay('nope'), null);
 });
