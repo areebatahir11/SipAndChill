@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api-client';
 import { Button } from '@/components/ui';
+import OrderNo from '@/features/orders/OrderNo';
 import PrintReceiptButton from './PrintReceiptButton';
 import { PRINT_CHANGED, reportPrint } from './print-report';
 
@@ -40,7 +41,7 @@ export default function PrintAttentionBanner() {
       <ul className="mt-2 grid gap-2">
         {data.orders.map((o) => (
           <li key={o.id} className="flex flex-wrap items-center gap-2">
-            <b>Order #{o.orderNo}</b>
+            <span>Order <OrderNo no={o.orderNo} date={o.businessDate} /></span>
             <span className="text-graphite">{o.printStatus === 'PROBLEM' ? 'did not print' : 'outcome unknown (print window)'}</span>
             <PrintReceiptButton orderId={o.id} label="Print again" size="sm" />
             <Button size="sm" variant="secondary" onClick={() => confirm(o.id)}>It printed</Button>

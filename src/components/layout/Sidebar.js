@@ -28,7 +28,7 @@ export default function Sidebar() {
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
         {ROUTE_ACCESS.filter((n) => n.menu !== false && can(n.any)).map((n) => (
-          <NavLink key={n.href} href={n.href} hint={n.hint}>{n.label}</NavLink>
+          <NavLink key={n.href} href={n.href} hint={n.hint} exact={n.href === '/'}>{n.label}</NavLink>
         ))}
         <NavLink href="/account" hint="Change your password">My Account</NavLink>
       </nav>

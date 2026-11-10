@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Alert, Card, DataTable, PageHeader, Pill, StatCard, Td } from '@/components/ui';
 import { OrderStatusPills } from '@/features/orders/OrderStatusPills';
+import OrderNo from '@/features/orders/OrderNo';
 import RangeFilter from './RangeFilter';
 import SalesChart from './SalesChart';
 import { dateTime, money } from '@/lib/format';
@@ -62,7 +63,7 @@ export default function Dashboard({ data: d, rangeError }) {
       <DataTable head={['Order', 'Date & time', 'Total', 'Status', '']} emptyText={d.recent.length ? undefined : 'No orders in this period.'}>
         {d.recent.map((o) => (
           <tr key={o.id}>
-            <Td><b>#{o.orderNo}</b></Td><Td>{dateTime(o.createdAt)}</Td><Td>{money(o.total)}</Td>
+            <Td><OrderNo no={o.orderNo} date={o.businessDate} /></Td><Td>{dateTime(o.createdAt)}</Td><Td>{money(o.total)}</Td>
             <Td><OrderStatusPills order={o} /></Td>
             <Td className="text-right"><Link href={`/orders/${o.id}`} className="font-medium underline">Details</Link></Td>
           </tr>

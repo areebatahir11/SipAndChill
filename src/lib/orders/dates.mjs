@@ -25,6 +25,24 @@ export function parseBusinessDay(s) {
   return d.toISOString().slice(0, 10) === s ? d : null;
 }
 
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Short label for a business day (YYYY-MM-DD): "Today", "Yesterday", "9 Nov" (year added when it is not this year). */
+export function dayLabel(day, now = new Date()) {
+  if (!day) return '';
+  const today = localDateString(now);
+  if (day === today) return 'Today';
+  if (day === localDateString(new Date(now.getTime() - 864e5))) return 'Yesterday';
+  const [y, m, d] = day.split('-').map(Number);
+  return `${d} ${MON[m - 1]}${String(y) === today.slice(0, 4) ? '' : ` ${y}`}`;
+}
+
+/** Long label for list headings: "Monday, 9 Nov 2026". */
+export function longDayLabel(day) {
+  if (!day) return '';
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
 function parseDay(s, off) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s ?? '');
   if (!m) return null;

@@ -119,7 +119,7 @@ export function hasPermission(held, needed) {
 export const ROUTE_ACCESS = [
   { href: '/', label: 'Sales Summary', hint: 'Today and past days', any: [P.DASHBOARD_VIEW] },
   { href: '/pos', label: 'Take Orders', hint: 'Sell at the counter', any: [P.ORDERS_CREATE] },
-  { href: '/orders', label: 'Orders & Receipts', hint: 'All orders taken', any: [P.ORDERS_VIEW] },
+  { href: '/orders', label: 'Orders & Receipts', hint: 'Today and past days', any: [P.ORDERS_VIEW] },
   // Printer setup lives inside Take Orders / Orders & Receipts (a "Printer" button), so it is not a sidebar heading.
   // The page itself still exists for old links and the "Connect one" link on the receipt page.
   { href: '/printer', label: 'Receipt Printer', hint: 'Connect your thermal printer', any: [P.RECEIPTS_PRINT], menu: false },

@@ -180,10 +180,31 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
 // ---------------------------------------------------------------------------
 // History, detail
 // ---------------------------------------------------------------------------
-export async function listOrders(auth, { page = 1, filter = 'all', q = '', date = '' } = {}) {
+const isoDay = (d) => d.toISOString().slice(0, 10);
+
+/** Which business days a list covers. today = the shop's current day only; past = every earlier day (optionally one `date`); all = no day limit. */
+function dayScope(view, date) {
+  const today = businessDay();
+  if (view === 'today') return { businessDate: today };
+  if (view === 'past') return { businessDate: { lt: today, ...(date ? { equals: parseBusinessDay(date) } : {}) } };
+  return date ? { businessDate: parseBusinessDay(date) } : {};
+}
+
+/** Completed-order count and sales for each of the given business days (one grouped query, used for the day headings). */
+async function daySummaries(auth, dates) {
+  if (!dates.length) return {};
+  const rows = await prisma.order.groupBy({ by: ['businessDate'], where: { ...scope(auth), status: 'COMPLETED', businessDate: { in: dates } }, _count: { _all: true }, _sum: { total: true } });
+  return Object.fromEntries(rows.map((r) => [isoDay(r.businessDate), { orders: r._count._all, sales: Number(r._sum.total ?? 0) }]));
+}
+
+/**
+ * view: 'today' | 'past' | 'all'. The "print problems" filter ignores the day limit on purpose:
+ * a receipt that failed to print yesterday must never be hidden just because the day has changed.
+ */
+export async function listOrders(auth, { page = 1, filter = 'all', q = '', date = '', view = 'all' } = {}) {
   const where = {
     ...scope(auth),
-    ...(date ? { businessDate: parseBusinessDay(date) } : {}), // one business day (the number below restarts every day)
+    ...(filter === 'print' ? {} : dayScope(view, date)),
     ...(filter === 'cancelled' ? { status: 'CANCELLED' }
       : filter === 'print' ? { status: 'COMPLETED', printStatus: { in: [PRINT_STATUS.PROBLEM, PRINT_STATUS.DIALOG_OPENED] } } // receipts that failed or nobody confirmed
       : filter === 'all' ? {}
@@ -194,7 +215,8 @@ export async function listOrders(auth, { page = 1, filter = 'all', q = '', date 
     prisma.order.findMany({ where, orderBy: [{ businessDate: 'desc' }, { dailyNo: 'desc' }], skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
     prisma.order.count({ where }),
   ]);
-  return { orders: rows.map(toOrder), total, page, pageSize: PAGE_SIZE, pages: Math.max(Math.ceil(total / PAGE_SIZE), 1) };
+  const dates = [...new Map(rows.map((r) => [r.businessDate.getTime(), r.businessDate])).values()];
+  return { orders: rows.map(toOrder), days: await daySummaries(auth, dates), total, page, pageSize: PAGE_SIZE, pages: Math.max(Math.ceil(total / PAGE_SIZE), 1) };
 }
 
 export async function getOrder(auth, id) {

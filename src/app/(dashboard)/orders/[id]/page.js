@@ -8,6 +8,7 @@ import { OrderStatusPills } from '@/features/orders/OrderStatusPills';
 import OrderActions from '@/features/orders/OrderActions';
 import PrintStatusPill from '@/features/printing/PrintStatusPill';
 import { dateTime, money } from '@/lib/format';
+import { dayLabel } from '@/lib/orders/dates.mjs';
 
 export default async function OrderDetailPage({ params }) {
   const auth = await requirePage(P.ORDERS_VIEW);
@@ -19,7 +20,7 @@ export default async function OrderDetailPage({ params }) {
 
   return (
     <>
-      <PageHeader title={`Order #${order.orderNo}`} sub={`${dateTime(order.createdAt)} · Cashier: ${order.cashierName}`}>
+      <PageHeader title={`Order #${order.orderNo} · ${dayLabel(order.businessDate)}`} sub={`${dateTime(order.createdAt)} · Cashier: ${order.cashierName}`}>
         <OrderStatusPills order={order} />
         {has(P.RECEIPTS_PRINT) && <PrintStatusPill status={order.printStatus} attempts={order.printAttempts} />}
         <OrderActions orderId={order.id} outstanding={order.outstanding} canPay={open && order.paymentStatus !== 'PAID' && has(P.PAYMENTS_RECORD)} canCancel={open && has(P.ORDERS_CANCEL)} canPrint={has(P.RECEIPTS_PRINT)} />

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { toMinor, fromMinor, calcOrder, calcPayment, paymentStatus } from '../src/lib/money.mjs';
 import { consumption, maxServings, mergeLines, toMilli } from '../src/lib/orders/recipe.mjs';
-import { resolveRange, bucketFor, localDateString, businessDay, parseBusinessDay } from '../src/lib/orders/dates.mjs';
+import { resolveRange, bucketFor, localDateString, businessDay, parseBusinessDay, dayLabel, longDayLabel } from '../src/lib/orders/dates.mjs';
 import { buildReceipt, normalizeWidth } from '../src/lib/orders/receipt.mjs';
 
 // ---------- money ----------
@@ -169,4 +169,16 @@ test('parseBusinessDay accepts real dates only', () => {
   assert.equal(parseBusinessDay('2026-11-10').toISOString().slice(0, 10), '2026-11-10');
   assert.equal(parseBusinessDay('2026-02-31'), null);
   assert.equal(parseBusinessDay('nope'), null);
+});
+test('dayLabel tells today, yesterday and older days apart', () => {
+  const now = new Date('2026-11-10T05:00:00Z'); // 10:00 in Karachi
+  assert.equal(dayLabel('2026-11-10', now), 'Today');
+  assert.equal(dayLabel('2026-11-09', now), 'Yesterday');
+  assert.equal(dayLabel('2026-11-08', now), '8 Nov');
+  assert.equal(dayLabel('2025-12-31', now), '31 Dec 2025');
+  assert.match(longDayLabel('2026-11-09'), /Monday.*9 Nov 2026/);
+});
+test('dayLabel flips at Pakistan midnight', () => {
+  assert.equal(dayLabel('2026-11-09', new Date('2026-11-09T18:59:00Z')), 'Today');
+  assert.equal(dayLabel('2026-11-09', new Date('2026-11-09T19:00:00Z')), 'Yesterday');
 });

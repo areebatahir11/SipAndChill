@@ -116,7 +116,7 @@ test('direct printing reports its result to the order (sent / failed) and a fail
 
 test('failure UI: banner on the counter and orders pages, per-button failure, error-aware printer button', () => {
   assert.match(read('src/features/pos/PosCounter.js'), /<PrintAttentionBanner \/>/);
-  assert.match(read('src/app/(dashboard)/orders/page.js'), /<PrintAttentionBanner \/>/);
+  assert.match(read('src/features/orders/OrdersView.js'), /<PrintAttentionBanner \/>/); // shared by /orders (today) and /orders/history
   const btn = read('src/features/printing/PrintReceiptButton.js');
   assert.match(btn, /triedAt/, 'only the pressed button shows its failure');
   assert.match(btn, /Open receipt page/);
@@ -126,9 +126,9 @@ test('failure UI: banner on the counter and orders pages, per-button failure, er
 });
 
 test('orders list: status pill, "Print problems" filter, direct Reprint button on every row', () => {
-  const page = read('src/app/(dashboard)/orders/page.js');
-  assert.match(page, /<PrintReceiptButton orderId=\{o\.id\}/);
-  assert.match(page, /<PrintStatusPill/);
-  assert.match(page, /\['print', 'Print problems'\]/);
+  const table = read('src/features/orders/OrdersTable.js');
+  assert.match(table, /<PrintReceiptButton orderId=\{o\.id\}/);
+  assert.match(table, /<PrintStatusPill/);
+  assert.match(read('src/features/orders/OrdersView.js'), /\['print', 'Print problems'\]/);
   assert.match(read('src/lib/validation/orders.js'), /'cancelled', 'print'/);
 });
