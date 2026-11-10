@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { HttpError } from '@/lib/http';
 import { hasPermission, homeFor } from '@/lib/permissions/codes.mjs';
 import { resolveSession } from './session';
+import { gateError } from './gates.mjs';
 
 /** Cached per request for Server Components (layout + page share one DB lookup). */
 export const getAuth = cache(resolveSession);
@@ -26,8 +27,8 @@ export async function requireApi(request, needed, { allowPasswordChange = false,
   if (!['GET', 'HEAD'].includes(request.method)) assertSameOrigin(request);
   const auth = await resolveSession();
   if (!auth) throw new HttpError(401, 'Please sign in.', 'UNAUTHENTICATED');
-  if (auth.mustChangePassword && !allowPasswordChange) throw new HttpError(403, 'Please choose your own password first.', 'PASSWORD_CHANGE_REQUIRED');
-  if (auth.termsRequired && !allowTerms) throw new HttpError(403, 'Please accept the Terms & Conditions first.', 'TERMS_REQUIRED');
+  const blocked = gateError(auth, { allowPasswordChange, allowTerms }); // temporary password first, then terms (see gates.mjs)
+  if (blocked) throw new HttpError(403, blocked[1], blocked[0]);
   if (!hasPermission(auth.permissions, needed)) throw new HttpError(403, 'You do not have permission to do that.', 'FORBIDDEN');
   return auth;
 }

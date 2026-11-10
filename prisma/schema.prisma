@@ -354,9 +354,24 @@ model Product {
   category    Category?    @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   recipeItems RecipeItem[]
   orderItems  OrderItem[]
+  image       ProductImage? // the picture itself lives in ProductImage so normal menu queries never load the bytes
 
   @@unique([tenantId, name])
   @@index([tenantId, categoryId])
+}
+
+// One small picture per menu item (max 150 KB, validated by file signature; the browser shrinks big photos first).
+// Served by GET /api/products/:id/image?v=<updatedAt> with a one-year cache, so the counter loads each picture once.
+model ProductImage {
+  productId   String   @id
+  tenantId    String
+  contentType String // image/png | image/jpeg | image/webp
+  data        Bytes
+  updatedAt   DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }
 
 // Stock consumed by ONE unit of the product (Step 5 deducts it when an order is placed).

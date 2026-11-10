@@ -19,10 +19,11 @@ const toProduct = (p, withRecipe) => ({
   isActive: p.isActive,
   categoryId: p.categoryId,
   categoryName: p.category?.name ?? null,
+  imageVersion: p.image ? p.image.updatedAt.getTime() : null, // changes whenever the picture changes -> new URL -> fresh cache
   ...(withRecipe ? { recipeLines: p.recipeItems.length, cost: recipeCost(p.recipeItems) } : {}),
 });
 
-const include = { category: { select: { name: true } }, recipeItems: { include: { ingredient: { select: { costPerUnit: true } } } } };
+const include = { image: { select: { updatedAt: true } }, category: { select: { name: true } }, recipeItems: { include: { ingredient: { select: { costPerUnit: true } } } } };
 
 async function findProduct(tenantId, id) {
   const p = await prisma.product.findFirst({ where: { id, tenantId }, include });

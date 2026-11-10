@@ -7,6 +7,8 @@ import { money } from '@/lib/format';
 import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import ProductFormDialog from './ProductFormDialog';
 import RecipeDialog from './RecipeDialog';
+import ProductPictureDialog from './ProductPictureDialog';
+import ProductThumb from './ProductThumb';
 import PromoBanner from '@/features/promotions/PromoBanner';
 import usePromotion from '@/features/promotions/usePromotion';
 import { toMinor, fromMinor } from '@/lib/money.mjs';
@@ -50,7 +52,7 @@ export default function ProductsManager({ promotion = null }) {
     setBusy(false);
   }
 
-  const head = ['Item', 'Category', 'Price', ...(canSeeRecipe ? ['Cost', 'Margin'] : []), 'Status', ''];
+  const head = ['', 'Item', 'Category', 'Price', ...(canSeeRecipe ? ['Cost', 'Margin'] : []), 'Status', ''];
 
   return (
     <>
@@ -72,6 +74,11 @@ export default function ProductsManager({ promotion = null }) {
           const margin = p.price > 0 && p.recipeLines > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : null;
           return (
             <tr key={p.id} className={p.isActive ? '' : 'opacity-60'}>
+              <Td className="w-16 !pr-0">
+                {canManage
+                  ? <button type="button" aria-label={`Picture for ${p.name}`} title={p.imageVersion ? 'Change picture' : 'Add picture'} onClick={() => setDialog({ type: 'picture', product: p })} className="block rounded-lg ring-peach hover:ring-4"><ProductThumb id={p.id} name={p.name} version={p.imageVersion} className="size-11 rounded-lg" /></button>
+                  : <ProductThumb id={p.id} name={p.name} version={p.imageVersion} className="size-11 rounded-lg" />}
+              </Td>
               <Td className="whitespace-nowrap font-medium">{p.name}</Td>
               <Td className="whitespace-nowrap">{p.categoryName || '—'}</Td>
               <Td className="whitespace-nowrap">
@@ -99,6 +106,7 @@ export default function ProductsManager({ promotion = null }) {
       </DataTable>
 
       {dialog?.type === 'form' && <ProductFormDialog product={dialog.product} categories={categories} onSaved={saved} onClose={close} />}
+      {dialog?.type === 'picture' && <ProductPictureDialog product={dialog.product} onChanged={load} onClose={close} />}
       {dialog?.type === 'recipe' && <RecipeDialog product={dialog.product} canEdit={canEditRecipe} onSaved={saved} onClose={close} />}
       {dialog?.type === 'delete' && (
         <ConfirmDialog title={`Delete ${dialog.product.name}?`} confirmLabel="Delete" danger busy={busy} error={error} onConfirm={remove} onClose={close}>

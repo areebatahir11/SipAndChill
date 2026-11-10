@@ -3,6 +3,7 @@ import { AuthProvider } from '@/components/layout/AuthProvider';
 import ChangePasswordForm from '@/features/account/ChangePasswordForm';
 import TermsGate from '@/features/legal/TermsGate';
 import { requirePage } from '@/lib/auth/guard';
+import { requiredStep } from '@/lib/auth/gates.mjs';
 
 /**
  * Every page in this route group requires a signed-in user. Individual pages add their own permission check.
@@ -11,11 +12,12 @@ import { requirePage } from '@/lib/auth/guard';
  */
 export default async function DashboardLayout({ children }) {
   const { user, tenant, role, permissions, mustChangePassword, termsRequired } = await requirePage();
+  const step = requiredStep({ mustChangePassword, termsRequired }); // same order the API enforces
   return (
     <AuthProvider value={{ user, tenant, role, permissions }}>
-      {mustChangePassword ? (
+      {step === 'password' ? (
         <main className="mx-auto w-full max-w-[520px] p-6 pt-16"><ChangePasswordForm forced /></main>
-      ) : termsRequired ? (
+      ) : step === 'terms' ? (
         <main className="mx-auto w-full max-w-[760px] p-4 pt-10 md:p-6 md:pt-14"><TermsGate /></main>
       ) : (
         <div className="grid min-h-screen md:grid-cols-[264px_1fr]">

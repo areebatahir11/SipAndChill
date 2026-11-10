@@ -11,6 +11,7 @@ import usePrinter from '@/features/printing/usePrinter';
 import PrintAttentionBanner from '@/features/printing/PrintAttentionBanner';
 import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
 import PrinterStatusButton from '@/features/printing/PrinterStatusButton';
+import MenuTile, { MENU_GRID } from './MenuTile';
 import PromoBanner from '@/features/promotions/PromoBanner';
 import usePromotion from '@/features/promotions/usePromotion';
 import { orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
@@ -79,6 +80,7 @@ export default function PosCounter({ shopPaper = 80 }) {
   const receivedMinor = canPay ? safeMinor(received) : 0;
   const pay = receivedMinor === null ? null : calcPayment(totals.totalMinor, 0, receivedMinor);
 
+  const pics = useMemo(() => (menu?.products ?? []).some((p) => p.imageVersion), [menu]); // no pictures anywhere = the compact text-only tiles
   const products = useMemo(() => (menu?.products ?? []).filter((p) => (category === 'all' || p.categoryId === category) && p.name.toLowerCase().includes(search.trim().toLowerCase())), [menu, category, search]);
 
   async function confirm() {
@@ -123,25 +125,8 @@ export default function PosCounter({ shopPaper = 80 }) {
           {!menu && !loadError && <p className="text-graphite">Loading menu…</p>}
           {menu && products.length === 0 && <Card className="text-center text-graphite">{menu.products.length === 0 ? 'No active menu items yet. Add items under Menu & Prices.' : 'No items match.'}</Card>}
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-            {products.map((p) => {
-              const soldOut = p.maxServings === 0;
-              return (
-                <button key={p.id} type="button" disabled={soldOut} onClick={() => add(p)}
-                  className="flex min-h-[96px] flex-col justify-between rounded-2xl border border-peach bg-white p-3 text-left transition-colors hover:border-rose hover:bg-blush active:bg-peach disabled:cursor-not-allowed disabled:opacity-50">
-                  <span className="font-semibold leading-snug">{p.name}</span>
-                  <span className="mt-2 flex items-end justify-between gap-2">
-                    {promo.percent ? (
-                      <span className="grid leading-tight">
-                        <s className="text-[13px] text-graphite" aria-label="regular price">{money(p.price)}</s>
-                        <span className="text-[17px] font-semibold">{money(fromMinor(promo.salePrice(toMinor(p.price))))}</span>
-                      </span>
-                    ) : <span className="text-[17px] font-semibold">{money(p.price)}</span>}
-                    {soldOut ? <Pill tone="alert">Out of stock</Pill> : p.maxServings !== null && p.maxServings <= 5 ? <span className="text-xs text-graphite">{p.maxServings} left</span> : null}
-                  </span>
-                </button>
-              );
-            })}
+          <div className={MENU_GRID}>
+            {products.map((p) => <MenuTile key={p.id} p={p} promo={promo} pics={pics} onAdd={add} />)}
           </div>
         </section>
 

@@ -64,7 +64,7 @@ export async function listPosProducts(tenantId) {
   const [products, categories] = await Promise.all([
     prisma.product.findMany({
       where: { tenantId, isActive: true },
-      include: { recipeItems: { include: { ingredient: { select: { stock: true } } } } },
+      include: { image: { select: { updatedAt: true } }, recipeItems: { include: { ingredient: { select: { stock: true } } } } },
       orderBy: { name: 'asc' },
     }),
     prisma.category.findMany({ where: { tenantId, isActive: true }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
@@ -77,7 +77,7 @@ export async function listPosProducts(tenantId) {
       const recipe = p.recipeItems.map((r) => ({ ingredientId: r.ingredientId, quantityMilli: toMilli(r.quantity) }));
       const stock = new Map(p.recipeItems.map((r) => [r.ingredientId, toMilli(r.ingredient.stock)]));
       const servings = maxServings(recipe, stock);
-      return { id: p.id, name: p.name, price: dec(p.price), categoryId: p.categoryId, maxServings: servings === null ? null : Math.max(servings, 0) };
+      return { id: p.id, name: p.name, price: dec(p.price), categoryId: p.categoryId, imageVersion: p.image ? p.image.updatedAt.getTime() : null, maxServings: servings === null ? null : Math.max(servings, 0) };
     }),
   };
 }
