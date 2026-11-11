@@ -21,6 +21,13 @@
   :focus-visible { outline: 3px solid var(--color-taupe); outline-offset: 2px; }
 }
 
+/* Slim, rounded scrollbar (used on the category pills row, where a wide row can scroll sideways). */
+.slim-scroll { scrollbar-width: thin; scrollbar-color: var(--color-rose) transparent; }
+.slim-scroll::-webkit-scrollbar { height: 6px; }
+.slim-scroll::-webkit-scrollbar-track { background: transparent; }
+.slim-scroll::-webkit-scrollbar-thumb { background: var(--color-rose); border-radius: 999px; }
+.slim-scroll::-webkit-scrollbar-thumb:hover { background: var(--color-taupe); }
+
 /* The count badge on a menu tile springs when its number changes (one small "yes, added" signal). */
 @keyframes pop { 0% { transform: scale(.4); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
 .pop { animation: pop .28s ease-out; }
