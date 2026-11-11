@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/prisma';
 import { BUSINESS_TZ, bucketFor, localDateString, resolveRange } from '@/lib/orders/dates.mjs';
+import { PAYMENT_METHODS } from '@/lib/payments.mjs';
 
 const n = (v) => Number(v ?? 0); // BigInt / Decimal / null -> number (display only; sums were computed in the database)
 const pct = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null);
@@ -21,14 +22,15 @@ async function salesWindow(tenantId, start, end) {
  * sets (a few counts, <= ~60 chart points, top 5, latest 10) come back. Every query is filtered by tenantId.
  *
  *   sales    = sum of totals of non-cancelled orders (by order date)
- *   received = cash actually applied to those orders (never includes change)
+ *   received = money actually applied to those orders, any method (never includes change)
+ *   byMethod = the same money split by how it was paid (cash / JazzCash / Easypaisa / bank). Cash here is what belongs in the drawer.
  *   unpaid   = sales - received
  */
 export async function getDashboard(tenantId, range) {
   const bucket = bucketFor(range.days);
   const where = { tenantId, createdAt: { gte: range.start, lt: range.end } };
 
-  const [current, previous, cancelled, series, best, recent, ingredients] = await Promise.all([
+  const [current, previous, cancelled, series, best, recent, ingredients, methods] = await Promise.all([
     salesWindow(tenantId, range.start, range.end),
     salesWindow(tenantId, range.prevStart, range.prevEnd),
     prisma.order.count({ where: { ...where, status: 'CANCELLED' } }),
@@ -45,7 +47,13 @@ export async function getDashboard(tenantId, range) {
       GROUP BY oi."name" ORDER BY qty DESC, revenue DESC LIMIT 5`,
     prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, take: 10 }),
     prisma.ingredient.findMany({ where: { tenantId, isActive: true }, select: { id: true, name: true, unit: true, stock: true, minStock: true }, orderBy: { name: 'asc' } }),
+    prisma.$queryRaw`
+      SELECT p."method" AS method, COALESCE(SUM(p."amountApplied"), 0) AS amount
+      FROM "Payment" p JOIN "Order" o ON o."id" = p."orderId"
+      WHERE o."tenantId" = ${tenantId} AND o."status" = 'COMPLETED' AND o."createdAt" >= ${range.start} AND o."createdAt" < ${range.end}
+      GROUP BY p."method"`,
   ]);
+  const byMethod = Object.fromEntries(PAYMENT_METHODS.map((m) => [m, n(methods.find((r) => r.method === m)?.amount)]));
 
   // Chart: fill empty hours/days with zeros so quiet times are visible. Keys: "YYYY-MM-DDTHH" (hour) or "YYYY-MM-DD".
   const keyOf = (d) => d.toISOString().slice(0, bucket === 'hour' ? 13 : 10);
@@ -70,7 +78,7 @@ export async function getDashboard(tenantId, range) {
 
   return {
     range: { preset: range.preset, label: range.label, from: localDateString(range.start), to: localDateString(new Date(range.end.getTime() - 1)), days: range.days },
-    current, previous, cancelled,
+    current, previous, cancelled, byMethod,
     change: { sales: pct(current.sales, previous.sales), orders: pct(current.orders, previous.orders) },
     chart: { bucket, points },
     bestSellers: best.map((b) => ({ name: b.name, qty: n(b.qty), revenue: n(b.revenue) })),

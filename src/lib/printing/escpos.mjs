@@ -196,8 +196,17 @@ export function receiptToEscPos(model, opts = {}) {
     p.row('Subtotal', model.subtotal);
     if (model.discount) p.row(model.discountLabel ? `Discount (${model.discountLabel})` : 'Discount', `- ${model.discount}`);
     p.bold(true).size(1, 2).row('TOTAL', model.total).size(1, 1).bold(false);
-    p.row('Amount Received', model.received);
-    p.row('Change Returned', model.change);
+    if (model.hasOnline) {
+      // Paid partly or fully online: one line per way of paying (the transaction ID is already masked in the model).
+      for (const l of model.paymentLines ?? []) {
+        p.row(`Paid by ${l.label}`, l.amount);
+        if (l.ref) p.row('Transaction ID', l.ref);
+      }
+      if (model.hasChange) p.row('Change Returned', model.change);
+    } else {
+      p.row('Amount Received', model.received);
+      p.row('Change Returned', model.change);
+    }
     if (model.hasOutstanding && !model.cancelled) p.bold(true).row('Outstanding', model.outstanding).bold(false);
     p.row('Payment Status', STATUS[model.paymentStatus] ?? String(model.paymentStatus));
     p.hr();

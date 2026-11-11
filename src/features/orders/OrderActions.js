@@ -1,9 +1,11 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Button, Field, Form, Input, Modal } from '@/components/ui';
+import PaymentPicker from '@/features/pos/PaymentPicker';
 import { api } from '@/lib/api-client';
-import { calcPayment, fromMinor, toMinor } from '@/lib/money.mjs';
+import { toMinor } from '@/lib/money.mjs';
+import { emptyPayForm, payloadOf, readPayForm } from '@/lib/payment-form.mjs';
 import { money } from '@/lib/format';
 import { useSubmit } from '@/lib/use-submit';
 import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
@@ -25,24 +27,19 @@ export default function OrderActions({ orderId, outstanding, canPay, canCancel, 
 }
 
 function PayDialog({ orderId, outstanding, onDone, onClose }) {
-  const [amount, setAmount] = useState('');
+  const [form, setForm] = useState(emptyPayForm); // cash and/or online (JazzCash, Easypaisa, bank); both = split payment
   const owed = toMinor(outstanding);
-  let received = null; try { received = amount === '' ? 0 : toMinor(amount); } catch {}
-  const calc = received === null ? null : calcPayment(owed, 0, received);
-  const { busy, error, submit } = useSubmit(async () => { await api(`/api/orders/${orderId}/payments`, { method: 'POST', body: { amountReceived: amount } }); onDone(); });
+  const res = useMemo(() => readPayForm(form, owed), [form, owed]);
+  const { busy, error, submit } = useSubmit(async () => { await api(`/api/orders/${orderId}/payments`, { method: 'POST', body: { payments: payloadOf(res.payments) } }); onDone(); });
   return (
     <Modal title="Take payment" onClose={onClose}>
       <Form onSubmit={submit}>
         <p className="text-graphite">Outstanding Amount: <b className="text-night">{money(outstanding)}</b></p>
-        <Field label="Amount Received (Rs)"><Input inputMode="decimal" autoFocus required value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
-        {calc && received > 0 && (
-          <p>Change Returned: <b>{money(fromMinor(calc.changeMinor))}</b> · Still outstanding: <b>{money(fromMinor(calc.outstandingMinor))}</b></p>
-        )}
-        {received === null && <Alert>Enter a valid amount.</Alert>}
+        <PaymentPicker form={form} setForm={setForm} dueMinor={owed} result={res} tone="light" />
         {error && <Alert>{error}</Alert>}
         <div className="flex justify-end gap-2.5">
           <Button variant="ghost" onClick={onClose}>Close</Button>
-          <Button type="submit" variant="primary" disabled={busy || !received}>{busy ? 'Saving…' : 'Record payment'}</Button>
+          <Button type="submit" variant="primary" disabled={busy || res.payments.length === 0 || Boolean(res.error)}>{busy ? 'Saving…' : 'Record payment'}</Button>
         </div>
       </Form>
     </Modal>

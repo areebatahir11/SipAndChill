@@ -459,7 +459,8 @@ model Payment {
   id             String   @id @default(cuid())
   tenantId       String
   orderId        String
-  method         String   @default("CASH")
+  method         String   @default("CASH") // CASH | JAZZCASH | EASYPAISA | BANK_TRANSFER (checked by the database)
+  reference      String?  // transaction ID for the online methods, empty for cash; one ID can be used only once per shop and method
   amountReceived Decimal  @db.Decimal(12, 2)
   amountApplied  Decimal  @db.Decimal(12, 2)
   changeReturned Decimal  @default(0) @db.Decimal(12, 2)
@@ -468,6 +469,7 @@ model Payment {
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, method, reference])
   @@index([orderId])
   @@index([tenantId, createdAt])
 }

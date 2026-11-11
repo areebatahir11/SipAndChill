@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { toMinor } from '@/lib/money.mjs';
 import { parseBusinessDay } from '@/lib/orders/dates.mjs';
+import { PAYMENT_METHODS } from '@/lib/payments.mjs';
 
 /** Money from a form/JSON: string or number, max 2 decimals, never negative. Output is integer paisa. */
 const money = (label) =>
@@ -11,18 +12,34 @@ const money = (label) =>
     }
   });
 
+/** One row of "how the customer paid". The rules between rows (no change on online, IDs, totals) live in settlePayments(). */
+const paymentRow = z.object({
+  method: z.enum(PAYMENT_METHODS, { errorMap: () => ({ message: 'Choose how the customer paid.' }) }),
+  amount: money('Amount').refine((v) => v > 0, 'Enter an amount above zero.'),
+  reference: z.string().trim().max(60).optional().nullable(),
+}).transform((r) => ({ method: r.method, amountMinor: r.amount, reference: r.reference || null }));
+const paymentList = z.array(paymentRow).max(PAYMENT_METHODS.length, 'Too many payment lines.');
+
 export const createOrderSchema = z.object({
   clientRequestId: z.string().trim().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/, 'Invalid request id.'),
   items: z.array(z.object({
     productId: z.string().trim().min(1).max(40),
     quantity: z.coerce.number({ invalid_type_error: 'Quantity must be a number.' }).int('Quantity must be a whole number.').min(1, 'Quantity must be at least 1.').max(999),
   })).min(1, 'Add at least one item.').max(60, 'Too many different items in one order.'),
-  amountReceived: money('Amount received').default('0'),
-});
+  payments: paymentList.optional(),
+  amountReceived: money('Amount received').default('0'), // older screens still send one cash amount: it becomes one cash payment
+}).transform(({ amountReceived, payments, ...rest }) => ({
+  ...rest,
+  payments: payments ?? (amountReceived > 0 ? [{ method: 'CASH', amountMinor: amountReceived, reference: null }] : []),
+}));
 
 export const paymentSchema = z.object({
-  amountReceived: money('Amount received').refine((v) => v > 0, 'Enter the amount received.'),
-});
+  payments: paymentList.optional(),
+  amountReceived: money('Amount received').default('0'),
+}).transform(({ amountReceived, payments, ...rest }) => ({
+  ...rest,
+  payments: payments ?? (amountReceived > 0 ? [{ method: 'CASH', amountMinor: amountReceived, reference: null }] : []),
+})).refine((v) => v.payments.length > 0, { message: 'Enter the amount received.', path: ['payments'] });
 
 export const cancelOrderSchema = z.object({
   reason: z.string().trim().min(3, 'Please give a short reason.').max(200),

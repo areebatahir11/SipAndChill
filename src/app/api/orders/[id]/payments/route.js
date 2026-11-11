@@ -7,6 +7,6 @@ import { addPayment } from '@/modules/orders/service';
 export const POST = handle(async (request, { params }) => {
   const auth = await requireApi(request, [P.PAYMENTS_RECORD]);
   const { id } = await params;
-  const { amountReceived } = paymentSchema.parse(await readJson(request));
-  return ok(await addPayment(auth, id, amountReceived), { status: 201 });
+  const { payments } = paymentSchema.parse(await readJson(request));
+  return ok(await addPayment(auth, id, payments), { status: 201 });
 });

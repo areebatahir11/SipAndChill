@@ -1,4 +1,5 @@
 import { fromMinor, toMinor } from '../money.mjs';
+import { isOnline, maskReference, methodLabel } from '../payments.mjs';
 
 export const RECEIPT_WIDTHS = [58, 80];
 // Characters per line in the monospace font at each paper width (used by the plain-text fallback).
@@ -34,6 +35,10 @@ export function buildReceipt(order, settings) {
     total: rs(total, c),
     received: rs(received, c),
     change: rs(change, c),
+    hasChange: change > 0,
+    // One line per way the customer paid. Online lines carry only the END of the transaction ID (receipts get photographed and shared).
+    hasOnline: order.payments.some((p) => isOnline(p.method)),
+    paymentLines: order.payments.map((p) => ({ label: methodLabel(p.method), amount: rs(toMinor(p.amountReceived), c), ref: p.reference ? maskReference(p.reference) : null })),
     outstanding: rs(Math.max(total - paid, 0), c),
     hasOutstanding: total - paid > 0,
     paymentStatus: order.paymentStatus,

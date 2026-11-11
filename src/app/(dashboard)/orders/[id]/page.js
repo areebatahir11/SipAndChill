@@ -9,6 +9,7 @@ import OrderActions from '@/features/orders/OrderActions';
 import PrintStatusPill from '@/features/printing/PrintStatusPill';
 import { dateTime, money } from '@/lib/format';
 import { dayLabel } from '@/lib/orders/dates.mjs';
+import { methodLabel } from '@/lib/payments.mjs';
 
 export default async function OrderDetailPage({ params }) {
   const auth = await requirePage(P.ORDERS_VIEW);
@@ -51,8 +52,8 @@ export default async function OrderDetailPage({ params }) {
             <ul className="grid gap-2">
               {order.payments.map((p) => (
                 <li key={p.id} className="flex justify-between gap-3 border-b border-blush pb-2 last:border-0">
-                  <span>{dateTime(p.createdAt)}<br /><small className="text-graphite">Cash · received {money(p.amountReceived)}</small></span>
-                  <span className="text-right"><b>{money(p.amountApplied)}</b><br /><small className="text-graphite">change {money(p.changeReturned)}</small></span>
+                  <span>{dateTime(p.createdAt)}<br /><small className="text-graphite">{methodLabel(p.method)}{p.reference ? ` · ID ${p.reference}` : ''}{p.method === 'CASH' ? ` · received ${money(p.amountReceived)}` : ''}</small></span>
+                  <span className="text-right"><b>{money(p.amountApplied)}</b>{p.method === 'CASH' && <><br /><small className="text-graphite">change {money(p.changeReturned)}</small></>}</span>
                 </li>
               ))}
             </ul>

@@ -5,6 +5,7 @@ import OrderNo from '@/features/orders/OrderNo';
 import RangeFilter from './RangeFilter';
 import SalesChart from './SalesChart';
 import { dateTime, money } from '@/lib/format';
+import { METHOD_LABEL, PAYMENT_METHODS } from '@/lib/payments.mjs';
 
 export default function Dashboard({ data: d, rangeError }) {
   const rangeText = d.range.from === d.range.to ? d.range.from : `${d.range.from} to ${d.range.to}`;
@@ -21,10 +22,24 @@ export default function Dashboard({ data: d, rangeError }) {
       <div className="mb-2 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total sales" value={money(d.current.sales)} hint={delta(d.change.sales)} />
         <StatCard label="Orders" value={d.current.orders} hint={d.cancelled ? `${d.cancelled} cancelled (not counted)` : delta(d.change.orders)} />
-        <StatCard label="Cash received" value={money(d.current.received)} hint={d.current.unpaid > 0 ? `${money(d.current.unpaid)} not paid yet` : 'Everything was paid'} />
+        <StatCard label="Money received" value={money(d.current.received)} hint={d.current.unpaid > 0 ? `${money(d.current.unpaid)} not paid yet` : 'Everything was paid'} />
         <StatCard label="Average per order" value={money(d.current.average)} hint={`Before: ${money(d.previous.average)}`} />
       </div>
-      <p className="mb-6 text-[13px] text-graphite">Cancelled orders are never counted as sales.</p>
+      <p className="mb-4 text-[13px] text-graphite">Cancelled orders are never counted as sales.</p>
+
+      {d.current.received > 0 && (
+        <Card className="mb-6">
+          <h2 className="mb-2 text-lg font-semibold">How customers paid</h2>
+          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {PAYMENT_METHODS.map((m) => (
+              <div key={m}>
+                <dt className="text-[13px] font-medium text-graphite">{m === 'CASH' ? 'Cash (in the drawer)' : METHOD_LABEL[m]}</dt>
+                <dd className="text-2xl font-semibold tracking-tight">{money(d.byMethod[m])}</dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+      )}
 
       {empty ? (
         <Card className="mb-6">

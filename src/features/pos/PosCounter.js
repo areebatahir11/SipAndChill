@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { Alert, Button, Modal, Pill } from '@/components/ui';
 import { useAuth } from '@/components/layout/AuthProvider';
 import { api } from '@/lib/api-client';
-import { calcOrder, calcPayment, fromMinor, toMinor } from '@/lib/money.mjs';
+import { calcOrder, fromMinor, toMinor } from '@/lib/money.mjs';
+import { emptyPayForm, payloadOf, readPayForm } from '@/lib/payment-form.mjs';
+import { methodLabel } from '@/lib/payments.mjs';
 import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import { money } from '@/lib/format';
 import usePrinter from '@/features/printing/usePrinter';
@@ -12,6 +14,7 @@ import PrintAttentionBanner from '@/features/printing/PrintAttentionBanner';
 import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
 import PrinterStatusButton from '@/features/printing/PrinterStatusButton';
 import MenuTile, { MENU_GRID } from './MenuTile';
+import PaymentPicker from './PaymentPicker';
 import ProductArt, { categoryEmoji } from './ProductArt';
 import ProductThumb from '@/features/products/ProductThumb';
 import PromoBanner from '@/features/promotions/PromoBanner';
@@ -28,7 +31,6 @@ function newRequestId() {
 
 const STATUS_PILL = { PAID: ['ok', 'Paid'], PARTIAL: ['neutral', 'Partially paid'], UNPAID: ['alert', 'Unpaid'] };
 const sum = (rows, key) => fromMinor(rows.reduce((t, r) => t + toMinor(r[key]), 0));
-const safeMinor = (s) => { try { return toMinor(s === '' ? 0 : s); } catch { return null; } };
 
 export default function PosCounter({ shopPaper = 80 }) {
   const { can } = useAuth();
@@ -40,7 +42,7 @@ export default function PosCounter({ shopPaper = 80 }) {
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]); // [{ productId, name, priceMinor, qty, max }]
-  const [received, setReceived] = useState('');
+  const [payForm, setPayForm] = useState(emptyPayForm); // how the customer pays: cash and/or JazzCash / Easypaisa / bank (see PaymentPicker)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // confirmed order, shown in the success dialog
@@ -54,8 +56,8 @@ export default function PosCounter({ shopPaper = 80 }) {
   }, []);
   useEffect(() => { loadMenu(); }, [loadMenu]);
 
-  // Same request id = the same order. Any change to the cart or the cash makes it a different order.
-  useEffect(() => { requestId.current = newRequestId(); }, [cart, received]);
+  // Same request id = the same order. Any change to the cart or the payment makes it a different order.
+  useEffect(() => { requestId.current = newRequestId(); }, [cart, payForm]);
 
   const add = (p) => {
     setError('');
@@ -80,8 +82,8 @@ export default function PosCounter({ shopPaper = 80 }) {
     const lines = cart.map((l) => ({ unitPriceMinor: l.priceMinor, quantity: l.qty }));
     return calcOrder(lines, orderDiscountMinor(lines, promo.percent));
   }, [cart, promo.percent]);
-  const receivedMinor = canPay ? safeMinor(received) : 0;
-  const pay = receivedMinor === null ? null : calcPayment(totals.totalMinor, 0, receivedMinor);
+  // Preview of the payment (change, outstanding, status) and the rows to send. The server re-checks every rule when the order is saved.
+  const payRes = useMemo(() => (canPay ? readPayForm(payForm, totals.totalMinor) : { payments: [], pay: null, error: '' }), [canPay, payForm, totals.totalMinor]);
 
   const catName = useMemo(() => new Map((menu?.categories ?? []).map((c) => [c.id, c.name])), [menu]);
   const inCart = useMemo(() => new Map(cart.map((l) => [l.productId, l.qty])), [cart]);
@@ -90,25 +92,24 @@ export default function PosCounter({ shopPaper = 80 }) {
   const products = useMemo(() => (menu?.products ?? []).filter((p) => (category === 'all' || p.categoryId === category) && p.name.toLowerCase().includes(search.trim().toLowerCase())), [menu, category, search]);
 
   async function confirm() {
-    if (busy || cart.length === 0 || receivedMinor === null) return; // busy guard stops double taps
+    if (busy || cart.length === 0 || payRes.error) return; // busy guard stops double taps
     setBusy(true); setError('');
     try {
       const { order } = await api('/api/orders', {
         method: 'POST',
-        body: { clientRequestId: requestId.current, items: cart.map((l) => ({ productId: l.productId, quantity: l.qty })), amountReceived: canPay ? (received || '0') : '0' },
+        body: { clientRequestId: requestId.current, items: cart.map((l) => ({ productId: l.productId, quantity: l.qty })), payments: canPay ? payloadOf(payRes.payments) : [] },
       });
       setDone({ order }); // figures shown come from the saved order, so a retried (duplicate) request still shows the truth
       // Receipt printer connected on this counter: print straight away (silent, no dialog). A failure never blocks the sale.
       const live = printerState.api.getSnapshot().config;
       if (canPrint && printerState.api.isDirect(live) && live.autoPrint && printerState.api.getSnapshot().link !== 'blocked') printerState.api.printOrder(order.id).catch(() => {});
-      setCart([]); setReceived(''); setSheet(false); loadMenu();
+      setCart([]); setPayForm(emptyPayForm()); setSheet(false); loadMenu();
     } catch (e) {
       setError(e.message); loadMenu(); // stock may have changed: refresh availability
     }
     setBusy(false);
   }
 
-  const quick = canPay && cart.length > 0 ? [['Exact', totals.totalMinor], ...[500, 1000, 5000].map((v) => [String(v), v * 100])] : [];
 
   const cartPanel = (
     <aside aria-label="Current order" className={`${sheet ? 'fixed inset-x-0 bottom-0 z-40 flex max-h-[90vh] rounded-t-[28px]' : 'hidden'} flex-col overflow-hidden bg-night text-blush shadow-2xl lg:sticky lg:top-6 lg:flex lg:max-h-[calc(100vh-3rem)] lg:rounded-[28px]`}>
@@ -158,37 +159,19 @@ export default function PosCounter({ shopPaper = 80 }) {
           <dt className="font-semibold">Order Total</dt>
           <dd className="text-3xl font-extrabold tracking-tight">{money(fromMinor(totals.totalMinor))}</dd>
         </div>
-        {canPay && cart.length > 0 && (
-          <>
-            <label className="mt-1 grid gap-1.5 text-sm font-semibold text-sand">Amount Received (Rs)
-              <input inputMode="decimal" autoComplete="off" placeholder="0" value={received} onChange={(e) => setReceived(e.target.value)} aria-invalid={receivedMinor === null}
-                className="w-full rounded-2xl border-2 border-slate bg-night px-4 py-3 text-2xl font-bold text-white placeholder:text-sand/40 focus:border-rose focus:outline-none" />
-            </label>
-            {receivedMinor === null && <Alert>Enter a valid amount (up to 2 decimals).</Alert>}
-            <div className="flex flex-wrap gap-2">
-              {quick.map(([label, v]) => <button type="button" key={label} onClick={() => setReceived(fromMinor(v).replace(/\.00$/, ''))} className="cursor-pointer rounded-full bg-slate px-4 py-1.5 text-sm font-semibold text-white hover:bg-rose hover:text-night">{label === 'Exact' ? 'Exact' : money(label)}</button>)}
-              <button type="button" onClick={() => setReceived('')} className="cursor-pointer rounded-full px-3 py-1.5 text-sm text-sand/80 hover:text-white">Clear</button>
-            </div>
-            {pay && (
-              <div className="mt-1 grid gap-1.5 rounded-2xl bg-slate/70 p-3">
-                <Row label="Change Returned" value={money(fromMinor(pay.changeMinor))} big />
-                <Row label="Outstanding Amount" value={money(fromMinor(pay.outstandingMinor))} />
-                <div className="flex items-center justify-between"><dt className="text-sand/80">Payment Status</dt><dd><Pill tone={STATUS_PILL[pay.status][0]}>{STATUS_PILL[pay.status][1]}</Pill></dd></div>
-              </div>
-            )}
-          </>
-        )}
-        {!canPay && cart.length > 0 && <p className="text-[13px] text-sand/80">Your role cannot record payments; the order will be saved as unpaid.</p>}
       </dl>
+
+      {canPay && cart.length > 0 && <div className="mt-4"><PaymentPicker form={payForm} setForm={setPayForm} dueMinor={totals.totalMinor} result={payRes} tone="dark" /></div>}
+      {!canPay && cart.length > 0 && <p className="mt-3 text-[13px] text-sand/80">Your role cannot record payments; the order will be saved as unpaid.</p>}
 
       {error && <Alert className="mt-3">{error}</Alert>}
       </div>
       <div className="grid gap-2 border-t border-slate bg-night px-5 pb-5 pt-3">
-        <button type="button" disabled={busy || cart.length === 0 || receivedMinor === null} onClick={confirm}
+        <button type="button" disabled={busy || cart.length === 0 || Boolean(payRes.error)} onClick={confirm}
           className="cursor-pointer rounded-2xl bg-white px-4 py-4 text-lg font-extrabold text-night transition enabled:hover:bg-sand enabled:active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40">
           {busy ? 'Confirming…' : 'Confirm order'}
         </button>
-        {cart.length > 0 && !busy && <button type="button" onClick={() => { setCart([]); setReceived(''); setError(''); }} className="cursor-pointer rounded-full py-1.5 text-sm text-sand/80 hover:text-white">Clear order</button>}
+        {cart.length > 0 && !busy && <button type="button" onClick={() => { setCart([]); setPayForm(emptyPayForm()); setError(''); }} className="cursor-pointer rounded-full py-1.5 text-sm text-sand/80 hover:text-white">Clear order</button>}
       </div>
     </aside>
   );
@@ -257,8 +240,8 @@ export default function PosCounter({ shopPaper = 80 }) {
           <dl className="grid gap-2">
             {Number(done.order.discount) > 0 && <Row label={done.order.discountLabel ? `Discount (${done.order.discountLabel})` : 'Discount'} value={`− ${money(done.order.discount)}`} />}
             <Row label="Order Total" value={money(done.order.total)} big />
-            <Row label="Amount Received" value={money(sum(done.order.payments, 'amountReceived'))} />
-            <Row label="Change Returned" value={money(sum(done.order.payments, 'changeReturned'))} big />
+            {done.order.payments.map((p) => <Row key={p.id} label={`${methodLabel(p.method)}${p.reference ? ` (ID ${p.reference})` : ''}`} value={money(p.amountReceived)} />)}
+            {done.order.payments.some((p) => p.method === 'CASH') && <Row label="Change Returned" value={money(sum(done.order.payments, 'changeReturned'))} big />}
             {done.order.paymentStatus !== 'PAID' && <Row label="Outstanding Amount" value={money(done.order.outstanding)} />}
             <div className="flex items-center justify-between"><dt className="text-graphite">Payment Status</dt><dd><Pill tone={STATUS_PILL[done.order.paymentStatus][0]}>{STATUS_PILL[done.order.paymentStatus][1]}</Pill></dd></div>
           </dl>

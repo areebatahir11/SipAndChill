@@ -4,10 +4,10 @@ import { money } from '@/lib/format';
 import { fromMinor, toMinor } from '@/lib/money.mjs';
 
 /**
- * Columns are sized by the room the grid actually has (not by the browser width), and never narrower than 9.5rem (11rem from tablet size up; two tiles per row on a phone):
+ * Columns are sized by the room the grid actually has (not by the browser width), and never narrower than 9.5rem (10.5rem from tablet size up; two tiles per row on a phone):
  * so a tile always fits its words, on a small laptop, a 150%-scaled Windows PC or a big counter screen alike.
  */
-export const MENU_GRID = 'grid gap-3 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(11rem,1fr))]';
+export const MENU_GRID = 'grid gap-3 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))]';
 
 /**
  * One tappable menu item: a big picture (the shop's photo, or a drawn illustration), the name, the price, and a count badge

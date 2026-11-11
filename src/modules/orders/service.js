@@ -3,7 +3,8 @@ import { HttpError } from '@/lib/http';
 import { isUniqueViolation } from '@/lib/db/errors';
 import { audit } from '@/modules/auth/audit';
 import { hasPermission, PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
-import { calcOrder, calcPayment, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
+import { calcOrder, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
+import { methodLabel, settlePayments } from '@/lib/payments.mjs';
 import { activePromotion, currentOrUpcoming, discountLabel, orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
 import { consumption, fromMilli, maxServings, mergeLines, toMilli } from '@/lib/orders/recipe.mjs';
 import { businessDay, parseBusinessDay } from '@/lib/orders/dates.mjs';
@@ -44,11 +45,35 @@ const toOrder = (o) => ({
   lastPrintAt: o.lastPrintAt,
   printConfirmedAt: o.printConfirmedAt,
   items: o.items?.map((i) => ({ id: i.id, productId: i.productId, name: i.name, unitPrice: dec(i.unitPrice), quantity: i.quantity, lineTotal: dec(i.lineTotal) })),
-  payments: o.payments?.map((p) => ({ id: p.id, method: p.method, amountReceived: dec(p.amountReceived), amountApplied: dec(p.amountApplied), changeReturned: dec(p.changeReturned), createdAt: p.createdAt })),
+  payments: o.payments?.map((p) => ({ id: p.id, method: p.method, reference: p.reference ?? null, amountReceived: dec(p.amountReceived), amountApplied: dec(p.amountApplied), changeReturned: dec(p.changeReturned), createdAt: p.createdAt })),
 });
 
 /** Cashiers (no reports permission) only ever see the orders they took themselves. */
 const scope = (auth) => ({ tenantId: auth.tenantId, ...(hasPermission(auth.permissions, P.REPORTS_VIEW) ? {} : { cashierId: auth.user.id }) });
+
+/** settlePayments() with its RangeError turned into a 400 the counter can show. */
+function settle(totalMinor, alreadyPaidMinor, payments) {
+  try { return settlePayments(totalMinor, alreadyPaidMinor, payments); } catch (e) {
+    if (e instanceof RangeError) throw new HttpError(400, e.message, 'BAD_PAYMENT');
+    throw e;
+  }
+}
+
+/** Rows to save for a settled payment. Online rows carry their transaction ID; cash rows carry none. */
+const paymentRows = (auth, pay) => pay.rows.map((r) => ({
+  tenantId: auth.tenantId, method: r.method, reference: r.reference,
+  amountReceived: fromMinor(r.amountReceivedMinor), amountApplied: fromMinor(r.appliedMinor), changeReturned: fromMinor(r.changeMinor), userId: auth.user.id,
+}));
+
+/** Friendly message before the database's unique rule has to say no: this transaction ID was already used. */
+async function assertReferencesFree(tx, auth, pay) {
+  for (const r of pay.rows.filter((x) => x.reference)) {
+    const used = await tx.payment.findFirst({ where: { tenantId: auth.tenantId, method: r.method, reference: r.reference }, select: { order: { select: { dailyNo: true, businessDate: true } } } });
+    if (used) throw new HttpError(409, `This ${methodLabel(r.method)} transaction ID was already used for Order #${used.order.dailyNo} (${used.order.businessDate.toISOString().slice(0, 10)}).`, 'REFERENCE_USED');
+  }
+}
+
+const payAudit = (pay) => ({ methods: pay.rows.map((r) => ({ method: r.method, amount: fromMinor(r.appliedMinor), ...(r.reference ? { reference: r.reference } : {}) })), change: fromMinor(pay.changeMinor) });
 
 async function findOrder(auth, id, db = prisma) {
   const o = await db.order.findFirst({ where: { id, ...scope(auth) }, include: orderInclude });
@@ -96,8 +121,8 @@ export async function listPosProducts(tenantId) {
  * Stock safety: each ingredient is decremented with `UPDATE ... WHERE stock >= need`, so two
  * simultaneous orders cannot drive stock below zero (the DB also has CHECK stock >= 0).
  */
-export async function createOrder(auth, { clientRequestId, items, amountReceived }) {
-  if (amountReceived > 0 && !hasPermission(auth.permissions, P.PAYMENTS_RECORD)) {
+export async function createOrder(auth, { clientRequestId, items, payments = [] }) {
+  if (payments.length > 0 && !hasPermission(auth.permissions, P.PAYMENTS_RECORD)) {
     throw new HttpError(403, 'You are not allowed to record payments.', 'FORBIDDEN');
   }
   const existing = await prisma.order.findUnique({ where: { tenantId_clientRequestId: { tenantId: auth.tenantId, clientRequestId } }, include: orderInclude });
@@ -125,7 +150,8 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
       const calc = calcOrder(priced, promo ? orderDiscountMinor(priced, promo.percent) : 0);
       // The total columns are DECIMAL(12,2): refuse an absurd order with a clear message instead of a database error.
       if (calc.totalMinor > MAX_MINOR) throw new HttpError(400, 'This order total is too large. Please reduce the quantities.', 'TOTAL_TOO_LARGE');
-      const pay = calcPayment(calc.totalMinor, 0, amountReceived);
+      const pay = settle(calc.totalMinor, 0, payments);
+      await assertReferencesFree(tx, auth, pay);
 
       // 3. Order numbers. The upsert row-locks this tenant's settings until commit, so concurrent orders are serialised.
       //    orderNo = lifetime sequence (never reused). dailyNo = 1,2,3... within today's business day (Asia/Karachi), restarting at 1 each new day.
@@ -145,7 +171,7 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
           amountPaid: fromMinor(pay.paidMinor),
           cashierId: auth.user.id, cashierName: auth.user.name,
           items: { create: calc.items.map((i) => ({ tenantId: auth.tenantId, productId: i.productId, name: byId.get(i.productId).name, unitPrice: fromMinor(i.unitPriceMinor), quantity: i.quantity, lineTotal: fromMinor(i.lineTotalMinor) })) },
-          ...(amountReceived > 0 ? { payments: { create: [{ tenantId: auth.tenantId, method: 'CASH', amountReceived: fromMinor(amountReceived), amountApplied: fromMinor(pay.appliedMinor), changeReturned: fromMinor(pay.changeMinor), userId: auth.user.id }] } } : {}),
+          ...(pay.rows.length > 0 ? { payments: { create: paymentRows(auth, pay) } } : {}),
         },
         include: orderInclude,
       });
@@ -165,13 +191,15 @@ export async function createOrder(auth, { clientRequestId, items, amountReceived
       return created;
     }, TX);
 
-    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, dailyNo: order.dailyNo, businessDate: order.businessDate.toISOString().slice(0, 10), total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus } });
+    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, dailyNo: order.dailyNo, businessDate: order.businessDate.toISOString().slice(0, 10), total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus, ...(order.payments.length ? { methods: order.payments.map((p) => ({ method: p.method, amount: dec(p.amountApplied), ...(p.reference ? { reference: p.reference } : {}) })) } : {}) } });
     return { order: toOrder(order), duplicate: false };
   } catch (e) {
     // Two identical requests raced: the loser hits the unique key, rolls back, and returns the winner's order.
     if (isUniqueViolation(e)) {
       const winner = await prisma.order.findUnique({ where: { tenantId_clientRequestId: { tenantId: auth.tenantId, clientRequestId } }, include: orderInclude });
       if (winner) return { order: toOrder(winner), duplicate: true };
+      // Not a repeated request: two counters used the same transaction ID at the same moment.
+      if (payments.some((p) => p.method !== 'CASH')) throw new HttpError(409, 'This transaction ID was just used for another order.', 'REFERENCE_USED');
     }
     throw e;
   }
@@ -270,14 +298,15 @@ export async function listPrintAttention(auth) {
 // ---------------------------------------------------------------------------
 // Later payment on an unpaid / partially paid order
 // ---------------------------------------------------------------------------
-export async function addPayment(auth, id, receivedMinor) {
+export async function addPayment(auth, id, payments) {
   const order = await prisma.$transaction(async (tx) => {
     const o = await findOrder(auth, id, tx);
     if (o.status !== 'COMPLETED') throw new HttpError(409, 'A cancelled order cannot take payments.', 'CANCELLED');
     const total = toMinor(dec(o.total));
     const before = toMinor(dec(o.amountPaid));
     if (before >= total) throw new HttpError(409, 'This order is already fully paid.', 'ALREADY_PAID');
-    const pay = calcPayment(total, before, receivedMinor);
+    const pay = settle(total, before, payments);
+    await assertReferencesFree(tx, auth, pay);
 
     // Optimistic guard: only applies if nobody else paid in the meantime.
     const applied = await tx.order.updateMany({
@@ -285,10 +314,10 @@ export async function addPayment(auth, id, receivedMinor) {
       data: { amountPaid: fromMinor(pay.paidMinor), paymentStatus: pay.status },
     });
     if (applied.count === 0) throw new HttpError(409, 'This order was just updated. Please reload and try again.', 'CONFLICT');
-    await tx.payment.create({ data: { tenantId: auth.tenantId, orderId: id, method: 'CASH', amountReceived: fromMinor(receivedMinor), amountApplied: fromMinor(pay.appliedMinor), changeReturned: fromMinor(pay.changeMinor), userId: auth.user.id } });
+    await tx.payment.createMany({ data: paymentRows(auth, pay).map((r) => ({ ...r, orderId: id })) });
     return { order: await findOrder(auth, id, tx), pay };
   }, TX);
-  await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.payment_recorded', entity: 'Order', entityId: id, metadata: { received: fromMinor(receivedMinor), change: fromMinor(order.pay.changeMinor) } });
+  await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.payment_recorded', entity: 'Order', entityId: id, metadata: payAudit(order.pay) });
   return { order: toOrder(order.order), changeReturned: fromMinor(order.pay.changeMinor) };
 }
 

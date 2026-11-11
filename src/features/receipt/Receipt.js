@@ -38,8 +38,22 @@ export default function Receipt({ model: r, width, orderId, autoprint }) {
           <div className="row"><span>Subtotal</span><span>{r.subtotal}</span></div>
           {r.discount && <div className="row"><span>Discount{r.discountLabel ? ` (${r.discountLabel})` : ''}</span><span>- {r.discount}</span></div>}
           <div className="row grand"><span>TOTAL</span><span>{r.total}</span></div>
-          <div className="row"><span>Amount Received</span><span>{r.received}</span></div>
-          <div className="row"><span>Change Returned</span><span>{r.change}</span></div>
+          {r.hasOnline ? (
+            <>
+              {r.paymentLines.map((l, i) => (
+                <div key={i}>
+                  <div className="row"><span>Paid by {l.label}</span><span>{l.amount}</span></div>
+                  {l.ref && <div className="row"><span>Transaction ID</span><span>{l.ref}</span></div>}
+                </div>
+              ))}
+              {r.hasChange && <div className="row"><span>Change Returned</span><span>{r.change}</span></div>}
+            </>
+          ) : (
+            <>
+              <div className="row"><span>Amount Received</span><span>{r.received}</span></div>
+              <div className="row"><span>Change Returned</span><span>{r.change}</span></div>
+            </>
+          )}
           {r.hasOutstanding && !r.cancelled && <div className="row"><b>Outstanding</b><b>{r.outstanding}</b></div>}
           <div className="row"><span>Status</span><b>{r.paymentStatus === 'PAID' ? 'PAID' : r.paymentStatus === 'PARTIAL' ? 'PARTIALLY PAID' : 'UNPAID'}</b></div>
         </div>
