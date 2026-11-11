@@ -4,9 +4,12 @@
    Roles: night = sidebar | sand = active item | slate = primary buttons | blush = page background
           peach = lines/hover | rose = accents | taupe = input borders | graphite = secondary text */
 @theme {
-  --color-blush: #fff5f5;
+  --color-blush: #FFFAF3;
+  --color-peach: #dfd0b8;
+  --color-rose:  #E5DDC5;
+   /* --color-blush: #fff5f5;
   --color-peach: #f7d6d0;
-  --color-rose: #e2b4bd;
+  --color-rose: #e2b4bd; */
   --color-graphite: #4a4a4a;
   --color-night: #222831;
   --color-slate: #393e46;
