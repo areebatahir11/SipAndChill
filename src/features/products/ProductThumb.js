@@ -1,5 +1,10 @@
-/** A menu item's picture, or a soft tile with its first letter when it has none. Pass `version` (product.imageVersion): it makes a new picture a new URL. */
-export default function ProductThumb({ id, name, version, className = '' }) {
+import ProductArt from '@/features/pos/ProductArt';
+
+/**
+ * A menu item's picture. Pass `version` (product.imageVersion): it makes a new picture a new URL.
+ * No uploaded picture? A colourful illustration drawn from the item's name (and `category`, when given) takes its place.
+ */
+export default function ProductThumb({ id, name, version, category = '', className = '' }) {
   if (version) return <img src={`/api/products/${id}/image?v=${version}`} alt="" width="320" height="240" loading="lazy" decoding="async" className={`object-cover ${className}`} />;
-  return <span aria-hidden className={`grid place-items-center bg-peach text-2xl font-semibold text-slate ${className}`}>{[...(name || '?').trim()][0]?.toUpperCase()}</span>;
+  return <ProductArt name={name || ''} category={category} className={className} />;
 }

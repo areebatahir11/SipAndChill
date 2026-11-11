@@ -24,7 +24,7 @@ function RoleSelect({ value, onChange, roles }) {
   );
 }
 
-/** dialog: { type: 'add' | 'role' | 'password' | 'status', member? } */
+/** dialog: { type: 'add' | 'name' | 'role' | 'password' | 'status', member? } */
 export default function StaffDialogs({ dialog, form, set, error, busy, roles, onClose, onSubmit }) {
   if (!dialog) return null;
   const m = dialog.member;
@@ -43,6 +43,21 @@ export default function StaffDialogs({ dialog, form, set, error, busy, roles, on
           <RoleSelect value={form.roleCode} onChange={set('roleCode')} roles={roles} />
           {error && <Alert>{error}</Alert>}
           <Actions onCancel={onClose} busy={busy} label={busy ? 'Creating…' : 'Create account'} />
+        </Form>
+      </Modal>
+    );
+  }
+
+  if (dialog.type === 'name') {
+    return (
+      <Modal title={`Rename ${m.name}`} onClose={onClose}>
+        <Form onSubmit={submit}>
+          <Field label="Full name">
+            <Input required minLength={2} maxLength={80} value={form.name || ''} onChange={set('name')} placeholder="For example: M. Usman" />
+            <small className="font-normal text-graphite">Shown in the sidebar and as Cashier on new receipts. Receipts already printed keep the name they had.</small>
+          </Field>
+          {error && <Alert>{error}</Alert>}
+          <Actions onCancel={onClose} busy={busy} label={busy ? 'Saving…' : 'Save name'} />
         </Form>
       </Modal>
     );

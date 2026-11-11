@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Alert, Button, Card, Input, Modal, PageHeader, Pill } from '@/components/ui';
+import { Alert, Button, Modal, Pill } from '@/components/ui';
 import { useAuth } from '@/components/layout/AuthProvider';
 import { api } from '@/lib/api-client';
 import { calcOrder, calcPayment, fromMinor, toMinor } from '@/lib/money.mjs';
@@ -12,6 +12,8 @@ import PrintAttentionBanner from '@/features/printing/PrintAttentionBanner';
 import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
 import PrinterStatusButton from '@/features/printing/PrinterStatusButton';
 import MenuTile, { MENU_GRID } from './MenuTile';
+import ProductArt, { categoryEmoji } from './ProductArt';
+import ProductThumb from '@/features/products/ProductThumb';
 import PromoBanner from '@/features/promotions/PromoBanner';
 import usePromotion from '@/features/promotions/usePromotion';
 import { orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
@@ -42,6 +44,7 @@ export default function PosCounter({ shopPaper = 80 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // confirmed order, shown in the success dialog
+  const [sheet, setSheet] = useState(false); // phones/tablets: the order slides up from the bottom bar
   const promo = usePromotion(menu?.promotion ?? null);
   const printerState = usePrinter();
   const requestId = useRef(newRequestId());
@@ -80,7 +83,10 @@ export default function PosCounter({ shopPaper = 80 }) {
   const receivedMinor = canPay ? safeMinor(received) : 0;
   const pay = receivedMinor === null ? null : calcPayment(totals.totalMinor, 0, receivedMinor);
 
-  const pics = useMemo(() => (menu?.products ?? []).some((p) => p.imageVersion), [menu]); // no pictures anywhere = the compact text-only tiles
+  const catName = useMemo(() => new Map((menu?.categories ?? []).map((c) => [c.id, c.name])), [menu]);
+  const inCart = useMemo(() => new Map(cart.map((l) => [l.productId, l.qty])), [cart]);
+  const itemCount = cart.reduce((n, l) => n + l.qty, 0);
+  const thumbOf = useMemo(() => new Map((menu?.products ?? []).map((p) => [p.id, p])), [menu]);
   const products = useMemo(() => (menu?.products ?? []).filter((p) => (category === 'all' || p.categoryId === category) && p.name.toLowerCase().includes(search.trim().toLowerCase())), [menu, category, search]);
 
   async function confirm() {
@@ -95,7 +101,7 @@ export default function PosCounter({ shopPaper = 80 }) {
       // Receipt printer connected on this counter: print straight away (silent, no dialog). A failure never blocks the sale.
       const live = printerState.api.getSnapshot().config;
       if (canPrint && printerState.api.isDirect(live) && live.autoPrint && printerState.api.getSnapshot().link !== 'blocked') printerState.api.printOrder(order.id).catch(() => {});
-      setCart([]); setReceived(''); loadMenu();
+      setCart([]); setReceived(''); setSheet(false); loadMenu();
     } catch (e) {
       setError(e.message); loadMenu(); // stock may have changed: refresh availability
     }
@@ -104,87 +110,147 @@ export default function PosCounter({ shopPaper = 80 }) {
 
   const quick = canPay && cart.length > 0 ? [['Exact', totals.totalMinor], ...[500, 1000, 5000].map((v) => [String(v), v * 100])] : [];
 
+  const cartPanel = (
+    <aside aria-label="Current order" className={`${sheet ? 'fixed inset-x-0 bottom-0 z-40 flex max-h-[90vh] rounded-t-[28px]' : 'hidden'} flex-col overflow-hidden bg-night text-blush shadow-2xl lg:sticky lg:top-6 lg:flex lg:max-h-[calc(100vh-3rem)] lg:rounded-[28px]`}>
+      <div className="min-h-0 flex-1 overflow-y-auto p-5 pb-3">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-xl font-bold text-white">Current order {itemCount > 0 && <span className="ml-1.5 rounded-full bg-rose px-2.5 py-0.5 align-middle text-sm font-bold text-night">{itemCount}</span>}</h2>
+        <button type="button" onClick={() => setSheet(false)} className="grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-slate text-lg lg:hidden" aria-label="Close order">✕</button>
+      </div>
+
+      {cart.length === 0 ? (
+        <div className="grid justify-items-center gap-2 py-8 text-center">
+          <ProductArt name="Fresh juice" className="h-28 w-40 rounded-2xl" />
+          <p className="font-semibold text-white">Nothing here yet</p>
+          <p className="text-sm text-sand/80">Tap any item on the menu to add it.</p>
+        </div>
+      ) : (
+        <ul className="grid gap-2.5">
+          {cart.map((l) => {
+            const p = thumbOf.get(l.productId);
+            return (
+              <li key={l.productId} className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-3 rounded-2xl bg-slate/70 p-2">
+                <span className="block h-14 w-14 overflow-hidden rounded-xl">
+                  <ProductThumb id={l.productId} name={l.name} version={p?.imageVersion} category={catName.get(p?.categoryId) ?? ''} className="h-full w-full" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold text-white">{l.name}</span>
+                  <span className="text-[13px] text-sand/80">{promo.percent ? <><s>{money(fromMinor(l.priceMinor))}</s> {money(fromMinor(promo.salePrice(l.priceMinor)))}</> : money(fromMinor(l.priceMinor))} each</span>
+                </span>
+                <span className="grid justify-items-end gap-1">
+                  <b className="text-white">{money(fromMinor(promo.salePrice(l.priceMinor) * l.qty))}</b>
+                  <span className="flex items-center rounded-full bg-night">
+                    <button type="button" aria-label={l.qty === 1 ? `Remove ${l.name}` : `Decrease ${l.name}`} onClick={() => setQty(l.productId, l.qty - 1)} className="grid h-8 w-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-rose hover:text-night">{l.qty === 1 ? '🗑' : '−'}</button>
+                    <span className="min-w-6 text-center font-bold text-white" aria-live="polite">{l.qty}</span>
+                    <button type="button" aria-label={`Increase ${l.name}`} onClick={() => setQty(l.productId, l.qty + 1)} className="grid h-8 w-8 cursor-pointer place-items-center rounded-full text-lg hover:bg-rose hover:text-night">+</button>
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <dl className="mt-4 grid gap-2 border-t border-slate pt-4">
+        <Row label="Subtotal" value={money(fromMinor(totals.subtotalMinor))} />
+        {totals.discountMinor > 0 && <Row label={`Discount (${promo.promotion.short})`} value={`− ${money(fromMinor(totals.discountMinor))}`} />}
+        <div className="flex items-end justify-between gap-3 rounded-2xl bg-rose px-4 py-3 text-night">
+          <dt className="font-semibold">Order Total</dt>
+          <dd className="text-3xl font-extrabold tracking-tight">{money(fromMinor(totals.totalMinor))}</dd>
+        </div>
+        {canPay && cart.length > 0 && (
+          <>
+            <label className="mt-1 grid gap-1.5 text-sm font-semibold text-sand">Amount Received (Rs)
+              <input inputMode="decimal" autoComplete="off" placeholder="0" value={received} onChange={(e) => setReceived(e.target.value)} aria-invalid={receivedMinor === null}
+                className="w-full rounded-2xl border-2 border-slate bg-night px-4 py-3 text-2xl font-bold text-white placeholder:text-sand/40 focus:border-rose focus:outline-none" />
+            </label>
+            {receivedMinor === null && <Alert>Enter a valid amount (up to 2 decimals).</Alert>}
+            <div className="flex flex-wrap gap-2">
+              {quick.map(([label, v]) => <button type="button" key={label} onClick={() => setReceived(fromMinor(v).replace(/\.00$/, ''))} className="cursor-pointer rounded-full bg-slate px-4 py-1.5 text-sm font-semibold text-white hover:bg-rose hover:text-night">{label === 'Exact' ? 'Exact' : money(label)}</button>)}
+              <button type="button" onClick={() => setReceived('')} className="cursor-pointer rounded-full px-3 py-1.5 text-sm text-sand/80 hover:text-white">Clear</button>
+            </div>
+            {pay && (
+              <div className="mt-1 grid gap-1.5 rounded-2xl bg-slate/70 p-3">
+                <Row label="Change Returned" value={money(fromMinor(pay.changeMinor))} big />
+                <Row label="Outstanding Amount" value={money(fromMinor(pay.outstandingMinor))} />
+                <div className="flex items-center justify-between"><dt className="text-sand/80">Payment Status</dt><dd><Pill tone={STATUS_PILL[pay.status][0]}>{STATUS_PILL[pay.status][1]}</Pill></dd></div>
+              </div>
+            )}
+          </>
+        )}
+        {!canPay && cart.length > 0 && <p className="text-[13px] text-sand/80">Your role cannot record payments; the order will be saved as unpaid.</p>}
+      </dl>
+
+      {error && <Alert className="mt-3">{error}</Alert>}
+      </div>
+      <div className="grid gap-2 border-t border-slate bg-night px-5 pb-5 pt-3">
+        <button type="button" disabled={busy || cart.length === 0 || receivedMinor === null} onClick={confirm}
+          className="cursor-pointer rounded-2xl bg-white px-4 py-4 text-lg font-extrabold text-night transition enabled:hover:bg-sand enabled:active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40">
+          {busy ? 'Confirming…' : 'Confirm order'}
+        </button>
+        {cart.length > 0 && !busy && <button type="button" onClick={() => { setCart([]); setReceived(''); setError(''); }} className="cursor-pointer rounded-full py-1.5 text-sm text-sand/80 hover:text-white">Clear order</button>}
+      </div>
+    </aside>
+  );
+
   return (
     <>
-      <PageHeader title="Take Orders" sub="Tap items to build the order, enter the cash, confirm.">
-        {canPrint && <PrinterStatusButton shopPaper={shopPaper} />}
-      </PageHeader>
+      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-extrabold leading-tight tracking-tight">Take Orders</h1>
+          <p className="text-graphite">Tap an item to add it. Enter the cash. Confirm.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {canPrint && <PrinterStatusButton shopPaper={shopPaper} />}
+        </div>
+      </header>
       {canPrint && <PrintAttentionBanner />}
       {loadError && <Alert className="mb-4">{loadError}</Alert>}
       <PromoBanner promotion={promo.promotion} upcoming={promo.upcoming} className="mb-4" />
 
-      <div className="grid items-start gap-5 lg:grid-cols-[1fr_390px]">
+      <div className="grid items-start gap-6 pb-24 lg:grid-cols-[1fr_390px] lg:pb-0">
         <section aria-label="Menu">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <Input className="max-w-[240px]" type="search" placeholder="Search items…" aria-label="Search items" value={search} onChange={(e) => setSearch(e.target.value)} />
-            {[{ id: 'all', name: 'All' }, ...(menu?.categories ?? [])].map((c) => (
-              <Button key={c.id} size="sm" variant={category === c.id ? 'primary' : 'secondary'} aria-pressed={category === c.id} onClick={() => setCategory(c.id)}>{c.name}</Button>
-            ))}
+          <div className="sticky top-0 z-10 -mx-1 mb-4 grid gap-3 bg-blush px-1 pb-2 pt-1">
+            <div className="relative max-w-md">
+              <span aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg">🔍</span>
+              <input type="search" placeholder="Search the menu…" aria-label="Search items" value={search} onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-full border-2 border-peach bg-white py-3 pl-12 pr-4 font-medium placeholder:text-graphite/60 focus:border-night focus:outline-none" />
+            </div>
+            <div className="-mx-2 flex gap-2 overflow-x-auto px-2 py-1" role="group" aria-label="Categories">
+              {[{ id: 'all', name: 'All' }, ...(menu?.categories ?? [])].map((c) => (
+                <button type="button" key={c.id} aria-pressed={category === c.id} onClick={() => setCategory(c.id)}
+                  className={`flex shrink-0 cursor-pointer items-center gap-2 rounded-full px-4 py-2.5 font-semibold transition-colors ${category === c.id ? 'bg-night text-white' : 'bg-white text-night ring-2 ring-peach hover:ring-rose'}`}>
+                  <span aria-hidden className="text-lg leading-none">{c.id === 'all' ? '✨' : categoryEmoji(c.name)}</span>{c.name}
+                </button>
+              ))}
+            </div>
           </div>
 
           {!menu && !loadError && <p className="text-graphite">Loading menu…</p>}
-          {menu && products.length === 0 && <Card className="text-center text-graphite">{menu.products.length === 0 ? 'No active menu items yet. Add items under Menu & Prices.' : 'No items match.'}</Card>}
+          {menu && products.length === 0 && (
+            <div className="grid justify-items-center gap-2 rounded-3xl bg-white p-10 text-center">
+              <ProductArt name="Fresh juice" className="h-32 w-44 rounded-2xl" />
+              <p className="font-semibold">{menu.products.length === 0 ? 'No active menu items yet' : 'No items match'}</p>
+              <p className="text-graphite">{menu.products.length === 0 ? 'Add items under Menu & Prices.' : 'Try another word or category.'}</p>
+            </div>
+          )}
 
           <div className={MENU_GRID}>
-            {products.map((p) => <MenuTile key={p.id} p={p} promo={promo} pics={pics} onAdd={add} />)}
+            {products.map((p) => <MenuTile key={p.id} p={p} category={catName.get(p.categoryId) ?? ''} promo={promo} qty={inCart.get(p.id) ?? 0} onAdd={add} />)}
           </div>
         </section>
 
-        <Card className="lg:sticky lg:top-6" aria-label="Current order">
-          <h2 className="mb-3 text-lg font-semibold">Current order</h2>
-          {cart.length === 0 ? <p className="py-8 text-center text-graphite">No items yet. Tap an item to add it.</p> : (
-            <ul className="divide-y divide-blush">
-              {cart.map((l) => (
-                <li key={l.productId} className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 py-2.5">
-                  <span className="font-medium">{l.name}</span>
-                  <b className="text-right">{money(fromMinor(promo.salePrice(l.priceMinor) * l.qty))}</b>
-                  <span className="text-[13px] text-graphite">
-                    {promo.percent ? <><s>{money(fromMinor(l.priceMinor))}</s> {money(fromMinor(promo.salePrice(l.priceMinor)))}</> : money(fromMinor(l.priceMinor))} each
-                  </span>
-                  <span className="flex items-center justify-end gap-1.5">
-                    <Button size="sm" aria-label={`Decrease ${l.name}`} onClick={() => setQty(l.productId, l.qty - 1)}>−</Button>
-                    <span className="min-w-8 text-center font-semibold" aria-live="polite">{l.qty}</span>
-                    <Button size="sm" aria-label={`Increase ${l.name}`} onClick={() => setQty(l.productId, l.qty + 1)}>+</Button>
-                    <Button size="sm" variant="danger" aria-label={`Remove ${l.name}`} onClick={() => setQty(l.productId, 0)}>Remove</Button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <dl className="mt-3 grid gap-1.5 border-t border-peach pt-3">
-            <Row label="Subtotal" value={money(fromMinor(totals.subtotalMinor))} />
-            {totals.discountMinor > 0 && <Row label={`Discount (${promo.promotion.short})`} value={`− ${money(fromMinor(totals.discountMinor))}`} />}
-            <Row label="Order Total" value={money(fromMinor(totals.totalMinor))} big />
-            {canPay && cart.length > 0 && (
-              <>
-                <label className="mt-2 grid gap-1.5 text-sm font-medium text-slate">Amount Received (Rs)
-                  <Input inputMode="decimal" autoComplete="off" placeholder="0" value={received} onChange={(e) => setReceived(e.target.value)} aria-invalid={receivedMinor === null} />
-                </label>
-                {receivedMinor === null && <Alert>Enter a valid amount (up to 2 decimals).</Alert>}
-                <div className="flex flex-wrap gap-1.5">
-                  {quick.map(([label, v]) => <Button key={label} size="sm" onClick={() => setReceived(fromMinor(v).replace(/\.00$/, ''))}>{label}</Button>)}
-                  <Button size="sm" variant="ghost" onClick={() => setReceived('')}>Clear</Button>
-                </div>
-                {pay && (
-                  <>
-                    <Row label="Change Returned" value={money(fromMinor(pay.changeMinor))} />
-                    <Row label="Outstanding Amount" value={money(fromMinor(pay.outstandingMinor))} />
-                    <div className="flex items-center justify-between"><dt className="text-graphite">Payment Status</dt><dd><Pill tone={STATUS_PILL[pay.status][0]}>{STATUS_PILL[pay.status][1]}</Pill></dd></div>
-                  </>
-                )}
-              </>
-            )}
-            {!canPay && cart.length > 0 && <p className="text-[13px] text-graphite">Your role cannot record payments; the order will be saved as unpaid.</p>}
-          </dl>
-
-          {error && <Alert className="mt-3">{error}</Alert>}
-          <div className="mt-4 grid gap-2">
-            <Button variant="accent" size="lg" disabled={busy || cart.length === 0 || receivedMinor === null} onClick={confirm}>{busy ? 'Confirming…' : 'Confirm order'}</Button>
-            {cart.length > 0 && !busy && <Button variant="ghost" onClick={() => { setCart([]); setReceived(''); setError(''); }}>Clear order</Button>}
-          </div>
-        </Card>
+        {sheet && <button type="button" aria-label="Close order" onClick={() => setSheet(false)} className="fixed inset-0 z-30 bg-night/60 lg:hidden" />}
+        {cartPanel}
       </div>
+
+      {/* Phones and small tablets: the order lives in a bar at the bottom, tap to open it. */}
+      {itemCount > 0 && !sheet && (
+        <button type="button" onClick={() => setSheet(true)} className="fixed inset-x-4 bottom-4 z-20 flex cursor-pointer items-center justify-between rounded-full bg-night px-5 py-4 text-white shadow-2xl lg:hidden">
+          <span className="flex items-center gap-2.5 font-semibold"><span className="grid h-8 min-w-8 place-items-center rounded-full bg-rose px-2 text-night">{itemCount}</span>View order</span>
+          <b className="text-lg">{money(fromMinor(totals.totalMinor))}</b>
+        </button>
+      )}
 
       {done && (
         <Modal title={`Order #${done.order.orderNo} confirmed`} onClose={() => setDone(null)}>
@@ -208,11 +274,12 @@ export default function PosCounter({ shopPaper = 80 }) {
   );
 }
 
+/** Label/value line. Inherits its colours, so it reads on the dark order panel and in the light dialog. */
 function Row({ label, value, big }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-graphite">{label}</dt>
-      <dd className={big ? 'text-xl font-semibold' : 'font-medium'}>{value}</dd>
+      <dt className="opacity-75">{label}</dt>
+      <dd className={big ? 'text-xl font-bold' : 'font-semibold'}>{value}</dd>
     </div>
   );
 }

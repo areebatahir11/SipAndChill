@@ -11,7 +11,7 @@ import { signOut } from '@/components/layout/sign-out';
  * because it has no business session context. `forced` is the first-login screen: a temporary
  * password must be replaced before anything else can be used.
  */
-export default function ChangePasswordForm({ endpoint = '/api/auth/password', identity, forced = false }) {
+export default function ChangePasswordForm({ endpoint = '/api/auth/password', identity, forced = false, before = null }) {
   const auth = useAuth();
   const signedInAs = identity ?? `${auth.user.email} (${auth.role.name})`;
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
@@ -41,6 +41,7 @@ export default function ChangePasswordForm({ endpoint = '/api/auth/password', id
         title={forced ? 'Choose your own password' : 'My Account'}
         sub={forced ? 'You are using a temporary password. Set your own to continue.' : `Signed in as ${signedInAs}`}
       />
+      {before}
       <Card className="max-w-[460px]">
         <h3 className="mb-2.5 text-[17px] font-semibold">{forced ? 'Current (temporary) password' : 'Change password'}</h3>
         <Form onSubmit={submit}>

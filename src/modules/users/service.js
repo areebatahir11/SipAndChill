@@ -81,7 +81,7 @@ export async function updateStaff(auth, userId, { name, roleCode, isActive }) {
 
   await audit({
     tenantId: auth.tenantId, userId: auth.user.id, action: 'staff.updated', entity: 'User', entityId: userId,
-    metadata: { name, role: changingRole ? roleCode : undefined, isActive },
+    metadata: { name, renamedFrom: name !== undefined && name !== member.user.name ? member.user.name : undefined, role: changingRole ? roleCode : undefined, isActive },
   });
   return toStaff(updated);
 }

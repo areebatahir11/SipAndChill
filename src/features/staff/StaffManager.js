@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Alert, Button, Card, DataTable, PageHeader, Pill, Td } from '@/components/ui';
 import { useAuth } from '@/components/layout/AuthProvider';
 import { api } from '@/lib/api-client';
@@ -10,6 +11,7 @@ import StaffDialogs from './StaffDialogs';
 const ROLES = Object.entries(ROLE_DEFAULTS).map(([code, r]) => ({ code, ...r }));
 
 export default function StaffManager() {
+  const router = useRouter();
   const { user: me, role: myRole, can } = useAuth();
   const canManage = can(P.USERS_MANAGE);
   const assignable = ROLES.filter((r) => canManageRank(myRole.rank, r.rank)); // roles I may hand out
@@ -34,6 +36,7 @@ export default function StaffManager() {
   // What each dialog sends when submitted.
   const actions = {
     add: () => [api('/api/staff', { method: 'POST', body: form }), 'Staff account created.'],
+    name: (m) => [api(`/api/staff/${m.userId}`, { method: 'PATCH', body: { name: form.name } }), 'Name updated.'],
     role: (m) => [api(`/api/staff/${m.userId}`, { method: 'PATCH', body: { roleCode: form.roleCode } }), 'Role updated.'],
     password: (m) => [api(`/api/staff/${m.userId}/password`, { method: 'POST', body: { newPassword: form.newPassword } }), 'Password reset. They were signed out everywhere.'],
     status: (m) => [api(`/api/staff/${m.userId}`, { method: 'PATCH', body: { isActive: !m.isActive } }), m.isActive ? 'Account deactivated.' : 'Account reactivated.'],
@@ -44,6 +47,7 @@ export default function StaffManager() {
     try {
       const [request, success] = actions[dialog.type](dialog.member);
       await request; await load(); close(); setNotice(success);
+      if (dialog.type === 'name' && dialog.member.userId === me.id) router.refresh(); // the sidebar shows my own name
     } catch (e) {
       setError(e.message);
     }
@@ -72,11 +76,12 @@ export default function StaffManager() {
               <Td><Pill tone={s.isActive ? 'ok' : 'off'}>{s.isActive ? 'Active' : 'Deactivated'}</Pill></Td>
               <Td>{s.lastLoginAt ? dateTime(s.lastLoginAt) : 'Never'}</Td>
               <Td className="text-right">
-                {mine && (
+                {(mine || (self && canManage)) && (
                   <div className="flex flex-wrap justify-end gap-1.5">
-                    <Button size="sm" variant="ghost" onClick={() => open('role', s, { roleCode: s.role.code })}>Change role</Button>
-                    <Button size="sm" variant="ghost" onClick={() => open('password', s, { newPassword: '' })}>Reset password</Button>
-                    <Button size="sm" variant={s.isActive ? 'danger' : 'accent'} onClick={() => open('status', s)}>{s.isActive ? 'Deactivate' : 'Reactivate'}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => open('name', s, { name: s.name })}>Rename</Button>
+                    {mine && <Button size="sm" variant="ghost" onClick={() => open('role', s, { roleCode: s.role.code })}>Change role</Button>}
+                    {mine && <Button size="sm" variant="ghost" onClick={() => open('password', s, { newPassword: '' })}>Reset password</Button>}
+                    {mine && <Button size="sm" variant={s.isActive ? 'danger' : 'accent'} onClick={() => open('status', s)}>{s.isActive ? 'Deactivate' : 'Reactivate'}</Button>}
                   </div>
                 )}
               </Td>
