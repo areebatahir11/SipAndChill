@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import { HttpError } from '@/lib/http';
 import { isUniqueViolation } from '@/lib/db/errors';
 import { audit } from '@/modules/auth/audit';
+import { afterResponse } from '@/lib/after-response';
 import { hasPermission, PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import { calcOrder, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
 import { methodLabel, settlePayments } from '@/lib/payments.mjs';
@@ -179,19 +180,36 @@ export async function createOrder(auth, { clientRequestId, items, payments = [] 
       // 5. Ingredient deduction (sorted ids = same lock order everywhere, no deadlocks).
       const recipes = new Map(products.map((p) => [p.id, p.recipeItems.map((r) => ({ ingredientId: r.ingredientId, quantityMilli: toMilli(r.quantity) }))]));
       const need = [...consumption(lines, recipes)].sort(([a], [b]) => (a < b ? -1 : 1));
-      for (const [ingredientId, milli] of need) {
-        const qty = fromMilli(milli);
-        const done = await tx.ingredient.updateMany({ where: { id: ingredientId, tenantId: auth.tenantId, stock: { gte: qty } }, data: { stock: { decrement: qty } } });
-        if (done.count === 0) {
-          const ing = await tx.ingredient.findFirst({ where: { id: ingredientId, tenantId: auth.tenantId }, select: { name: true, stock: true, unit: true } });
-          throw new HttpError(409, `Not enough ${ing?.name ?? 'stock'}: need ${qty} ${ing?.unit ?? ''}, only ${ing ? Number(ing.stock) : 0} left.`.replace(/ +/g, ' '), 'INSUFFICIENT_STOCK');
+      if (need.length > 0) {
+        const ids = need.map(([id]) => id);
+        const qtys = need.map(([, milli]) => fromMilli(milli));
+        // ONE statement takes every ingredient off the shelf, and only those that still have enough (stock >= need):
+        // two simultaneous orders still cannot drive stock below zero, but there is no loop of database round trips.
+        const updated = await tx.$executeRaw`
+          UPDATE "Ingredient" AS i SET "stock" = i."stock" - v."qty"
+          FROM (SELECT unnest(${ids}::text[]) AS "id", unnest(${qtys}::numeric[]) AS "qty") AS v
+          WHERE i."id"::text = v."id" AND i."tenantId" = ${auth.tenantId} AND i."stock" >= v."qty"`;
+        if (updated !== need.length) {
+          // Something is short (or gone). Name the first one, in the same order as before. Throwing rolls the whole sale back.
+          const rows = await tx.ingredient.findMany({ where: { tenantId: auth.tenantId, id: { in: ids } }, select: { id: true, name: true, stock: true, unit: true } });
+          const byIngredient = new Map(rows.map((r) => [r.id, r]));
+          for (const [i, id] of ids.entries()) {
+            const ing = byIngredient.get(id);
+            if (!ing || Number(ing.stock) < Number(qtys[i])) {
+              throw new HttpError(409, `Not enough ${ing?.name ?? 'stock'}: need ${qtys[i]} ${ing?.unit ?? ''}, only ${ing ? Number(ing.stock) : 0} left.`.replace(/ +/g, ' '), 'INSUFFICIENT_STOCK');
+            }
+          }
+          throw new HttpError(409, 'Stock changed while saving this order. Please try again.', 'INSUFFICIENT_STOCK');
         }
-        await tx.stockMovement.create({ data: { tenantId: auth.tenantId, ingredientId, type: 'USAGE', quantity: `-${qty}`, note: `Order #${dailyNo} (${businessDate.toISOString().slice(0, 10)})`, userId: auth.user.id, orderId: created.id } });
+        const note = `Order #${dailyNo} (${businessDate.toISOString().slice(0, 10)})`;
+        await tx.stockMovement.createMany({
+          data: need.map(([ingredientId], i) => ({ tenantId: auth.tenantId, ingredientId, type: 'USAGE', quantity: `-${qtys[i]}`, note, userId: auth.user.id, orderId: created.id })),
+        });
       }
       return created;
     }, TX);
 
-    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, dailyNo: order.dailyNo, businessDate: order.businessDate.toISOString().slice(0, 10), total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus, ...(order.payments.length ? { methods: order.payments.map((p) => ({ method: p.method, amount: dec(p.amountApplied), ...(p.reference ? { reference: p.reference } : {}) })) } : {}) } });
+    afterResponse(() => audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, dailyNo: order.dailyNo, businessDate: order.businessDate.toISOString().slice(0, 10), total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus, ...(order.payments.length ? { methods: order.payments.map((p) => ({ method: p.method, amount: dec(p.amountApplied), ...(p.reference ? { reference: p.reference } : {}) })) } : {}) } }));
     return { order: toOrder(order), duplicate: false };
   } catch (e) {
     // Two identical requests raced: the loser hits the unique key, rolls back, and returns the winner's order.
@@ -271,7 +289,7 @@ export async function recordPrintEvent(auth, id, event) {
       data: { ...change, ...(printAttempts !== undefined ? { printAttempts: { increment: 1 } } : {}) },
     });
     if (done.count === 1) {
-      if (event === 'confirmed' || event === 'failed') await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: `order.receipt_${event}`, entity: 'Order', entityId: id, metadata: { dailyNo: current.dailyNo, businessDate: current.businessDate.toISOString().slice(0, 10) } });
+      if (event === 'confirmed' || event === 'failed') afterResponse(() => audit({ tenantId: auth.tenantId, userId: auth.user.id, action: `order.receipt_${event}`, entity: 'Order', entityId: id, metadata: { dailyNo: current.dailyNo, businessDate: current.businessDate.toISOString().slice(0, 10) } }));
       return printView(await prisma.order.findFirst({ where, select: PRINT_SELECT }));
     }
   }
@@ -317,7 +335,7 @@ export async function addPayment(auth, id, payments) {
     await tx.payment.createMany({ data: paymentRows(auth, pay).map((r) => ({ ...r, orderId: id })) });
     return { order: await findOrder(auth, id, tx), pay };
   }, TX);
-  await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.payment_recorded', entity: 'Order', entityId: id, metadata: payAudit(order.pay) });
+  afterResponse(() => audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.payment_recorded', entity: 'Order', entityId: id, metadata: payAudit(order.pay) }));
   return { order: toOrder(order.order), changeReturned: fromMinor(order.pay.changeMinor) };
 }
 
@@ -340,6 +358,6 @@ export async function cancelOrder(auth, id, { reason, restock }) {
       }
     }
   }, TX);
-  await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.cancelled', entity: 'Order', entityId: id, metadata: { reason, restock } });
+  afterResponse(() => audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.cancelled', entity: 'Order', entityId: id, metadata: { reason, restock } }));
   return getOrder(auth, id);
 }

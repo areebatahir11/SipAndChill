@@ -25,7 +25,7 @@ export default function PrintAttentionBanner() {
     window.addEventListener('focus', load);
     window.addEventListener(PRINT_CHANGED, load);
     document.addEventListener('visibilitychange', onVisible);
-    const t = setInterval(load, 60000);
+    const t = setInterval(load, 300000); // every 5 minutes (it also reloads on focus and after any print action)
     return () => { window.removeEventListener('focus', load); window.removeEventListener(PRINT_CHANGED, load); document.removeEventListener('visibilitychange', onVisible); clearInterval(t); };
   }, [load]);
 

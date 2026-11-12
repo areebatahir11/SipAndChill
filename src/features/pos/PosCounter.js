@@ -32,12 +32,12 @@ function newRequestId() {
 const STATUS_PILL = { PAID: ['ok', 'Paid'], PARTIAL: ['neutral', 'Partially paid'], UNPAID: ['alert', 'Unpaid'] };
 const sum = (rows, key) => fromMinor(rows.reduce((t, r) => t + toMinor(r[key]), 0));
 
-export default function PosCounter({ shopPaper = 80 }) {
+export default function PosCounter({ shopPaper = 80, initialMenu = null }) {
   const { can } = useAuth();
   const canPay = can(P.PAYMENTS_RECORD);
   const canPrint = can(P.RECEIPTS_PRINT);
 
-  const [menu, setMenu] = useState(null);
+  const [menu, setMenu] = useState(initialMenu);
   const [loadError, setLoadError] = useState('');
   const [category, setCategory] = useState('all');
   const [search, setSearch] = useState('');
@@ -66,7 +66,7 @@ export default function PosCounter({ shopPaper = 80 }) {
   const loadMenu = useCallback(async () => {
     try { setMenu(await api('/api/pos/products')); setLoadError(''); } catch (e) { setLoadError(e.message); }
   }, []);
-  useEffect(() => { loadMenu(); }, [loadMenu]);
+  useEffect(() => { if (!initialMenu) loadMenu(); }, [loadMenu, initialMenu]); // the server page already supplied the menu
 
   // Same request id = the same order. Any change to the cart or the payment makes it a different order.
   useEffect(() => { requestId.current = newRequestId(); }, [cart, payForm]);

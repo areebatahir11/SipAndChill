@@ -12,14 +12,14 @@ import MovementsDialog from './MovementsDialog';
 const TABS = [['ALL', 'All'], ['INGREDIENT', 'Ingredients'], ['MATERIAL', 'Materials'], ['LOW', 'Low stock']];
 const daysLeft = (d) => (d ? Math.ceil((new Date(d) - new Date()) / 864e5) : null);
 
-export default function InventoryManager() {
+export default function InventoryManager({ initialItems = null, initialSuppliers = null }) {
   const { can } = useAuth();
   const canManage = can(P.INGREDIENTS_MANAGE);
   const canAdjust = can(P.INVENTORY_ADJUST);
   const canHistory = can(P.INVENTORY_VIEW);
 
-  const [items, setItems] = useState(null);
-  const [suppliers, setSuppliers] = useState([]);
+  const [items, setItems] = useState(initialItems);
+  const [suppliers, setSuppliers] = useState(initialSuppliers ?? []);
   const [loadError, setLoadError] = useState('');
   const [tab, setTab] = useState('ALL');
   const [q, setQ] = useState('');
@@ -32,9 +32,10 @@ export default function InventoryManager() {
     try { setItems(await api('/api/ingredients')); setLoadError(''); } catch (e) { setLoadError(e.message); }
   }, []);
   useEffect(() => {
-    load();
-    if (can(P.SUPPLIERS_VIEW)) api('/api/suppliers').then(setSuppliers).catch(() => {}); // dropdown only
-  }, [load, can]);
+    // The server page already supplies the first data; fetch here only when it did not.
+    if (!initialItems) load();
+    if (!initialSuppliers && can(P.SUPPLIERS_VIEW)) api('/api/suppliers').then(setSuppliers).catch(() => {}); // dropdown only
+  }, [load, can, initialItems, initialSuppliers]);
 
   const rows = useMemo(() => (items || []).filter((i) =>
     (tab === 'ALL' || (tab === 'LOW' ? i.lowStock && i.isActive : i.kind === tab)) &&
