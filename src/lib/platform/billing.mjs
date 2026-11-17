@@ -1,5 +1,6 @@
 // Pure billing rules for PearlSolutions clients. No database or framework code, so it is unit-tested.
-import { BILLING_STATUS } from './constants.mjs';
+import { BILLING_STATUS, PLAN_WARN_DAYS, TRIAL_DAYS } from './constants.mjs';
+import { businessDay } from '../orders/dates.mjs';
 
 const startOfUtcDay = (now) => Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 
@@ -55,3 +56,48 @@ export function pickFreeSlug(base, taken) {
 
 /** Due date of a new signup's trial: UTC midnight, `days` after today (dates are stored as UTC midnight). */
 export const trialEndDate = (now, days) => new Date(startOfUtcDay(now) + days * 864e5);
+
+const DAY = 864e5;
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * What a client OWNER sees about their plan. Derived only from fields PearlSolutions already sets
+ * (billingStatus, dueDate, lastPaidAt, monthlyFee), so it can never disagree with the admin screen.
+ *
+ *   TRIAL        never paid, first due date still ahead  -> "Free trial: N days left"
+ *   TRIAL_ENDED  never paid, first due date has passed
+ *   ACTIVE       marked Paid
+ *   UPCOMING     paid before, unpaid now, due date far away
+ *   DUE_SOON     paid before, due within PLAN_WARN_DAYS
+ *   OVERDUE      paid before, due date has passed
+ *   SETUP        no due date set yet
+ *
+ * tone: ok | neutral | warn | alert. needsAttention drives the reminder banner.
+ * "Today" is the shop's business day (Pakistan time), the same calendar the due date is entered in.
+ */
+export function planStatus(tenant, now = new Date()) {
+  const fee = Number(tenant.monthlyFee) || 0;
+  const paid = tenant.billingStatus === BILLING_STATUS.PAID;
+  const everPaid = paid || Boolean(tenant.lastPaidAt);
+  const today = businessDay(now).getTime();
+  const due = tenant.dueDate ? new Date(tenant.dueDate).getTime() : null;
+  const daysLeft = due === null ? null : Math.round((due - today) / DAY); // negative = days overdue
+  const base = { fee, dueDate: tenant.dueDate ?? null, lastPaidAt: tenant.lastPaidAt ?? null, daysLeft, trialDays: null, trialElapsed: null, trialProgress: null };
+  const out = (state, tone, headline, needsAttention = false, extra = {}) => ({ ...base, state, tone, headline, needsAttention, ...extra });
+
+  if (paid) return out('ACTIVE', 'ok', 'Plan active');
+  if (due === null) return out('SETUP', 'neutral', everPaid ? 'Payment due' : 'Your plan is being set up');
+
+  if (!everPaid) {
+    if (daysLeft < 0) return out('TRIAL_ENDED', 'alert', 'Free trial ended: first payment is overdue', true);
+    const trialDays = Math.max(TRIAL_DAYS, daysLeft);
+    const trialElapsed = trialDays - daysLeft;
+    const trial = { trialDays, trialElapsed, trialProgress: trialElapsed / trialDays };
+    const headline = daysLeft === 0 ? 'Free trial ends today' : `Free trial: ${plural(daysLeft, 'day')} left`;
+    return out('TRIAL', daysLeft <= PLAN_WARN_DAYS ? 'warn' : 'ok', headline, daysLeft <= PLAN_WARN_DAYS, trial);
+  }
+
+  if (daysLeft < 0) return out('OVERDUE', 'alert', `Payment overdue by ${plural(-daysLeft, 'day')}`, true);
+  if (daysLeft <= PLAN_WARN_DAYS) return out('DUE_SOON', 'warn', daysLeft === 0 ? 'Payment due today' : `Payment due in ${plural(daysLeft, 'day')}`, true);
+  return out('UPCOMING', 'neutral', 'Next payment coming up');
+}

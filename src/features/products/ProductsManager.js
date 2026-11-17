@@ -13,15 +13,15 @@ import PromoBanner from '@/features/promotions/PromoBanner';
 import usePromotion from '@/features/promotions/usePromotion';
 import { toMinor, fromMinor } from '@/lib/money.mjs';
 
-export default function ProductsManager({ promotion = null, initialItems = null, initialCategories = null }) {
+export default function ProductsManager({ promotion = null }) {
   const { can } = useAuth();
   const promo = usePromotion(promotion);
   const canManage = can(P.PRODUCTS_MANAGE);
   const canSeeRecipe = can(P.RECIPES_VIEW);
   const canEditRecipe = can(P.RECIPES_MANAGE);
 
-  const [items, setItems] = useState(initialItems);
-  const [categories, setCategories] = useState(initialCategories ?? []);
+  const [items, setItems] = useState(null);
+  const [categories, setCategories] = useState([]);
   const [loadError, setLoadError] = useState('');
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
@@ -34,10 +34,9 @@ export default function ProductsManager({ promotion = null, initialItems = null,
     try { setItems(await api('/api/products')); setLoadError(''); } catch (e) { setLoadError(e.message); }
   }, []);
   useEffect(() => {
-    // The server page already supplies the first data; fetch here only when it did not.
-    if (!initialItems) load();
-    if (!initialCategories && can(P.CATEGORIES_VIEW)) api('/api/categories').then(setCategories).catch(() => {});
-  }, [load, can, initialItems, initialCategories]);
+    load();
+    if (can(P.CATEGORIES_VIEW)) api('/api/categories').then(setCategories).catch(() => {});
+  }, [load, can]);
 
   const rows = useMemo(() => (items || []).filter((p) =>
     p.name.toLowerCase().includes(q.toLowerCase()) && (!cat || (cat === 'none' ? !p.categoryId : p.categoryId === cat))), [items, q, cat]);

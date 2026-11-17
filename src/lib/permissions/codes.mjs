@@ -105,6 +105,13 @@ export function canManageRank(actorRank, targetRank) {
   return targetRank < actorRank;
 }
 
+/**
+ * Who sees the "trial ending / payment due" reminder banner: the Business Owner and Managers, not counter or stock staff.
+ * Uses USERS_MANAGE (held by exactly those two roles) so no new permission or database migration is needed.
+ * Only the owner also gets the amounts, the sidebar chip and the Plan & Billing page (SETTINGS_MANAGE).
+ */
+export const canSeeBillingNotice = (held) => hasPermission(held, PERMISSIONS.USERS_MANAGE);
+
 /** needed: one code, or an array meaning "any of these". */
 export function hasPermission(held, needed) {
   if (!needed || (Array.isArray(needed) && needed.length === 0)) return true;
@@ -129,6 +136,8 @@ export const ROUTE_ACCESS = [
   { href: '/suppliers', label: 'Suppliers', hint: 'Who you buy from', any: [P.SUPPLIERS_VIEW] },
   { href: '/staff', label: 'My Team', hint: 'Managers and staff logins', any: [P.USERS_VIEW] },
   { href: '/settings', label: 'Shop Settings', hint: 'Name, phone, receipt', any: [P.SETTINGS_MANAGE] },
+  // Owner-only (same permission as Shop Settings): the client's own free trial, monthly fee and due date.
+  { href: '/billing', label: 'Plan & Billing', hint: 'Free trial, fee, due date', any: [P.SETTINGS_MANAGE] },
 ];
 
 /** First finished page this user may open: used after login and when access is denied. */

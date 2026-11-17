@@ -29,7 +29,7 @@ export default function BillingDialog({ client, onSaved, onClose }) {
         </Field>
         <Field label="Monthly fee"><Input type="number" min="0" step="1" value={form.monthlyFee} onChange={set('monthlyFee')} /></Field>
         <Field label="Next due date"><Input type="date" value={form.dueDate} onChange={set('dueDate')} /></Field>
-        <p className="text-[13px] text-graphite">When a client pays, set the status to Paid and move the due date to the next billing date. Unpaid clients past their due date show as Overdue.</p>
+        <p className="text-[13px] text-graphite">When a client pays, set the status to Paid and move the due date to the next billing date. Unpaid clients past their due date show as Overdue. The client owner sees the fee, due date and free-trial countdown on their own Plan &amp; Billing page, so keep them accurate. A client that has never paid is shown as on a free trial until this due date.</p>
         {error && <Alert>{error}</Alert>}
         <FormActions onCancel={onClose} busy={busy} label={busy ? 'Saving…' : 'Save billing'} />
       </Form>

@@ -6,10 +6,10 @@ import { api } from '@/lib/api-client';
 import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import SupplierFormDialog from './SupplierFormDialog';
 
-export default function SuppliersManager({ initialRows = null }) {
+export default function SuppliersManager() {
   const { can } = useAuth();
   const canManage = can(P.SUPPLIERS_MANAGE);
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [q, setQ] = useState('');
   const [dialog, setDialog] = useState(null); // { type: 'form' | 'delete', supplier? }
@@ -20,7 +20,7 @@ export default function SuppliersManager({ initialRows = null }) {
   const load = useCallback(async () => {
     try { setRows(await api('/api/suppliers')); setLoadError(''); } catch (e) { setLoadError(e.message); }
   }, []);
-  useEffect(() => { if (!initialRows) load(); }, [load, initialRows]);
+  useEffect(() => { load(); }, [load]);
 
   const shown = useMemo(() => (rows || []).filter((s) => `${s.name} ${s.phone || ''}`.toLowerCase().includes(q.toLowerCase())), [rows, q]);
   const close = () => { setDialog(null); setError(''); };

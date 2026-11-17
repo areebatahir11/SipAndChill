@@ -5,6 +5,7 @@ import { useAuth } from './AuthProvider';
 import NavLink from './NavLink';
 import TenantLogo from './TenantLogo';
 import { signOut } from './sign-out';
+import PlanChip from '@/features/billing/PlanChip';
 
 export default function Sidebar() {
   const { user, tenant, role, can } = useAuth();
@@ -33,6 +34,7 @@ export default function Sidebar() {
         <NavLink href="/account" hint="Change your password">My Account</NavLink>
       </nav>
 
+      <PlanChip />
       <Button variant="sidebar" onClick={signOut}>Log out</Button>
     </aside>
   );

@@ -10,13 +10,13 @@ import StaffDialogs from './StaffDialogs';
 
 const ROLES = Object.entries(ROLE_DEFAULTS).map(([code, r]) => ({ code, ...r }));
 
-export default function StaffManager({ initialStaff = null }) {
+export default function StaffManager() {
   const router = useRouter();
   const { user: me, role: myRole, can } = useAuth();
   const canManage = can(P.USERS_MANAGE);
   const assignable = ROLES.filter((r) => canManageRank(myRole.rank, r.rank)); // roles I may hand out
 
-  const [staff, setStaff] = useState(initialStaff);
+  const [staff, setStaff] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [dialog, setDialog] = useState(null);
   const [form, setForm] = useState({});
@@ -27,7 +27,7 @@ export default function StaffManager({ initialStaff = null }) {
   const load = useCallback(async () => {
     try { setStaff(await api('/api/staff')); setLoadError(''); } catch (e) { setLoadError(e.message); }
   }, []);
-  useEffect(() => { if (!initialStaff) load(); }, [load, initialStaff]);
+  useEffect(() => { load(); }, [load]);
 
   const open = (type, member, initial = {}) => { setDialog({ type, member }); setForm(initial); setError(''); };
   const close = () => setDialog(null);

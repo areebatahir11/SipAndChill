@@ -35,10 +35,10 @@ function CategoryDialog({ category, onSaved, onClose }) {
   );
 }
 
-export default function CategoriesManager({ initialRows = null }) {
+export default function CategoriesManager() {
   const { can } = useAuth();
   const canManage = can(P.CATEGORIES_MANAGE);
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [dialog, setDialog] = useState(null); // { type: 'form' | 'delete', category? }
   const [notice, setNotice] = useState('');
@@ -48,7 +48,7 @@ export default function CategoriesManager({ initialRows = null }) {
   const load = useCallback(async () => {
     try { setRows(await api('/api/categories')); setLoadError(''); } catch (e) { setLoadError(e.message); }
   }, []);
-  useEffect(() => { if (!initialRows) load(); }, [load, initialRows]);
+  useEffect(() => { load(); }, [load]);
 
   const close = () => { setDialog(null); setError(''); };
   const saved = async (msg) => { close(); setNotice(msg); await load(); };

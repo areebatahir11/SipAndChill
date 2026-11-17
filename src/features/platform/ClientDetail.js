@@ -91,6 +91,7 @@ export default function ClientDetail({ id }) {
             ['Status', <BillingPill key="s" client={client} />],
             ['Monthly fee', money(client.monthlyFee)],
             ['Due date', client.dueDate ? dateOnly(client.dueDate) : '—'],
+            ['Client sees', client.plan.headline],
             ['Last paid', client.lastPaidAt ? dateTime(client.lastPaidAt) : 'Never'],
             ['Internal note', client.internalNote || '—'],
           ]}

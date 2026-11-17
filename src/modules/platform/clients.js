@@ -4,7 +4,7 @@ import { hashPassword } from '@/lib/auth/password';
 import { revokeUserSessions } from '@/lib/auth/session';
 import { ROLE_CODES } from '@/lib/permissions/codes.mjs';
 import { BILLING_STATUS, TENANT_STATUS, TRIAL_DAYS } from '@/lib/platform/constants.mjs';
-import { billingLabel, trialEndDate } from '@/lib/platform/billing.mjs';
+import { billingLabel, planStatus, trialEndDate } from '@/lib/platform/billing.mjs';
 import { audit } from '@/modules/auth/audit';
 import { provisionBusiness } from '@/modules/tenants/provision';
 import { assertBusinessNameFree } from '@/modules/tenants/names';
@@ -37,6 +37,7 @@ function toClient(t) {
     status: t.status, // ACTIVE | PENDING | REJECTED (see TENANT_STATUS)
     billingStatus: t.billingStatus,
     billing: billingLabel(t),
+    plan: planStatus(t), // what the client owner sees on their Plan & Billing page
     monthlyFee: Number(t.monthlyFee),
     dueDate: t.dueDate,
     lastPaidAt: t.lastPaidAt,
