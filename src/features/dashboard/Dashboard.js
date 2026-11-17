@@ -27,6 +27,17 @@ export default function Dashboard({ data: d, rangeError }) {
       </div>
       <p className="mb-4 text-[13px] text-graphite">Cancelled orders are never counted as sales.</p>
 
+      {d.expenses && (
+        <section className="mb-6" aria-label="Money spent">
+          <div className="mb-2 grid gap-4 sm:grid-cols-3">
+            <StatCard label="Spent on stock" value={money(d.expenses.stock)} hint="Ingredients and supplies you bought" />
+            <StatCard label="Other expenses" value={money(d.expenses.other)} hint="Rent, bills, salaries and so on" />
+            <StatCard label="Received minus spent" value={money(d.expenses.left)} hint={d.expenses.cash > 0 ? `${money(d.expenses.cash)} of the spending was paid in cash` : 'Money received less money spent'} />
+          </div>
+          <p className="text-[13px] text-graphite">Received minus spent is a cash view, not your profit: stock you bought but have not used yet is counted as spent. <Link href="/expenses" className="font-medium underline">See all expenses →</Link></p>
+        </section>
+      )}
+
       {d.current.received > 0 && (
         <Card className="mb-6">
           <h2 className="mb-2 text-lg font-semibold">How customers paid</h2>

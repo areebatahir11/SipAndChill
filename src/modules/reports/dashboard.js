@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/db/prisma';
 import { BUSINESS_TZ, bucketFor, localDateString, resolveRange } from '@/lib/orders/dates.mjs';
 import { PAYMENT_METHODS } from '@/lib/payments.mjs';
+import { decimalToMinor, leftAfterSpending, minorToNumber } from '@/lib/expenses.mjs';
+import { expenseSummary } from '@/modules/expenses/service';
 
 const n = (v) => Number(v ?? 0); // BigInt / Decimal / null -> number (display only; sums were computed in the database)
 const pct = (cur, prev) => (prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null);
@@ -26,11 +28,11 @@ async function salesWindow(tenantId, start, end) {
  *   byMethod = the same money split by how it was paid (cash / JazzCash / Easypaisa / bank). Cash here is what belongs in the drawer.
  *   unpaid   = sales - received
  */
-export async function getDashboard(tenantId, range) {
+export async function getDashboard(tenantId, range, { includeExpenses = false } = {}) {
   const bucket = bucketFor(range.days);
   const where = { tenantId, createdAt: { gte: range.start, lt: range.end } };
 
-  const [current, previous, cancelled, series, best, recent, ingredients, methods] = await Promise.all([
+  const [current, previous, cancelled, series, best, recent, ingredients, methods, spent] = await Promise.all([
     salesWindow(tenantId, range.start, range.end),
     salesWindow(tenantId, range.prevStart, range.prevEnd),
     prisma.order.count({ where: { ...where, status: 'CANCELLED' } }),
@@ -52,6 +54,7 @@ export async function getDashboard(tenantId, range) {
       FROM "Payment" p JOIN "Order" o ON o."id" = p."orderId"
       WHERE o."tenantId" = ${tenantId} AND o."status" = 'COMPLETED' AND o."createdAt" >= ${range.start} AND o."createdAt" < ${range.end}
       GROUP BY p."method"`,
+    includeExpenses ? expenseSummary(tenantId, range) : null, // only for people allowed to see expenses
   ]);
   const byMethod = Object.fromEntries(PAYMENT_METHODS.map((m) => [m, n(methods.find((r) => r.method === m)?.amount)]));
 
@@ -84,5 +87,8 @@ export async function getDashboard(tenantId, range) {
     bestSellers: best.map((b) => ({ name: b.name, qty: n(b.qty), revenue: n(b.revenue) })),
     recent: recent.map((o) => ({ id: o.id, orderNo: o.dailyNo, businessDate: o.businessDate.toISOString().slice(0, 10), createdAt: o.createdAt, total: n(o.total), status: o.status, paymentStatus: o.paymentStatus })),
     inventory: { low: low.slice(0, 8), lowCount: low.length, out: out.slice(0, 8), outCount: out.length },
+    // Money spent in the same period (voided entries excluded). `left` = money received - money spent: a cash view, NOT profit
+    // (profit also needs the cost of the stock that was actually used; that comes with the costing step).
+    expenses: spent && { ...spent, left: minorToNumber(leftAfterSpending(decimalToMinor(current.received), decimalToMinor(spent.total))) },
   };
 }

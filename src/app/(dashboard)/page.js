@@ -1,5 +1,5 @@
 import { requirePage } from '@/lib/auth/guard';
-import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
+import { PERMISSIONS as P, hasPermission } from '@/lib/permissions/codes.mjs';
 import { resolveRange } from '@/lib/orders/dates.mjs';
 import { getDashboard } from '@/modules/reports/dashboard';
 import Dashboard from '@/features/dashboard/Dashboard';
@@ -15,6 +15,6 @@ export default async function DashboardPage({ searchParams }) {
     rangeError = e.message;
     range = resolveRange('today');
   }
-  const data = await getDashboard(auth.tenantId, range);
+  const data = await getDashboard(auth.tenantId, range, { includeExpenses: hasPermission(auth.permissions, P.EXPENSES_VIEW) });
   return <Dashboard data={data} rangeError={rangeError} />;
 }

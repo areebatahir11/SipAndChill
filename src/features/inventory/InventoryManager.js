@@ -7,6 +7,7 @@ import { money } from '@/lib/format';
 import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import ItemFormDialog from './ItemFormDialog';
 import StockDialog from './StockDialog';
+import PurchaseDialog from './PurchaseDialog';
 import MovementsDialog from './MovementsDialog';
 
 const TABS = [['ALL', 'All'], ['INGREDIENT', 'Ingredients'], ['MATERIAL', 'Materials'], ['LOW', 'Low stock']];
@@ -60,6 +61,7 @@ export default function InventoryManager() {
     <>
       <PageHeader title="Stock" sub="Ingredients and materials, stock levels and reorder alerts.">
         <Input className="w-56" placeholder="Search items" value={q} onChange={(e) => setQ(e.target.value)} />
+        {canAdjust && active.length > 0 && <Button variant="accent" onClick={() => setDialog({ type: 'purchase' })}>Record purchase</Button>}
         {canManage && <Button variant="primary" onClick={() => setDialog({ type: 'form' })}>Add item</Button>}
       </PageHeader>
 
@@ -113,6 +115,7 @@ export default function InventoryManager() {
 
       {dialog?.type === 'form' && <ItemFormDialog item={dialog.item} suppliers={suppliers} onSaved={saved} onClose={close} />}
       {dialog?.type === 'stock' && <StockDialog item={dialog.item} onSaved={saved} onClose={close} />}
+      {dialog?.type === 'purchase' && <PurchaseDialog items={active} suppliers={suppliers} onSaved={saved} onClose={close} />}
       {dialog?.type === 'history' && <MovementsDialog item={dialog.item} onClose={close} />}
       {dialog?.type === 'delete' && (
         <ConfirmDialog title={`Delete ${dialog.item.name}?`} confirmLabel="Delete" danger busy={busy} error={error} onConfirm={remove} onClose={close}>

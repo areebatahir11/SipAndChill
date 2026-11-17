@@ -41,12 +41,12 @@ export default function ItemFormDialog({ item, suppliers, onSaved, onClose }) {
           <Field label="Unit"><Select value={form.unit} onChange={set('unit')}>{UNITS.map((u) => <option key={u}>{u}</option>)}</Select></Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          {!editing && <Field label="Opening stock"><Input type="number" min="0" step="any" value={form.openingStock} onChange={set('openingStock')} placeholder="0" /></Field>}
-          <Field label="Reorder level"><Input type="number" min="0" step="any" value={form.minStock} onChange={set('minStock')} placeholder="0" /></Field>
-          <Field label="Cost per unit (Rs)"><Input type="number" min="0" step="any" value={form.costPerUnit} onChange={set('costPerUnit')} placeholder="0" /></Field>
-          <Field label="Expiry date"><Input type="date" value={form.expiryDate} onChange={set('expiryDate')} /></Field>
+          {!editing && <Field label="Opening stock" hint="How much is already on the shelf today. Not counted as spending. For new purchases use Record purchase."><Input type="number" min="0" step="any" value={form.openingStock} onChange={set('openingStock')} placeholder="0" /></Field>}
+          <Field label="Reorder level" hint="When stock falls to this amount, the item shows as Low stock."><Input type="number" min="0" step="any" value={form.minStock} onChange={set('minStock')} placeholder="0" /></Field>
+          <Field label="Cost per unit (Rs)" hint="Usual price of one unit. Updates automatically when you record a purchase."><Input type="number" min="0" step="any" value={form.costPerUnit} onChange={set('costPerUnit')} placeholder="0" /></Field>
+          <Field label="Expiry date" hint="Optional. Shows a warning when it is close."><Input type="date" value={form.expiryDate} onChange={set('expiryDate')} /></Field>
         </div>
-        <Field label="Supplier">
+        <Field label="Supplier" hint="Optional. Who you usually buy this from. Pre-selected in Record purchase.">
           <Select value={form.supplierId} onChange={set('supplierId')}>
             <option value="">None</option>
             {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}

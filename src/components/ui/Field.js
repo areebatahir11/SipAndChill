@@ -8,11 +8,12 @@ export const Select = ({ className = '', children, ...props }) => (
 );
 
 /** Label + control. Usage: <Field label="Email"><Input .../></Field> */
-export function Field({ label, children }) {
+export function Field({ label, hint, children }) {
   return (
     <label className="grid gap-1.5 text-sm font-medium text-slate">
       {label}
       {children}
+      {hint && <span className="text-xs font-normal leading-snug text-graphite">{hint}</span>}
     </label>
   );
 }

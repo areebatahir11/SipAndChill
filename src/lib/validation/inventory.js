@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { nonNegative, requiredName } from './common';
 import { decimalPlaces } from '@/lib/money.mjs';
+import { amountMinor, methodSchema } from './expenses';
 
 export const UNITS = ['kg', 'g', 'L', 'ml', 'pcs', 'pack', 'dozen'];
 export const KINDS = ['INGREDIENT', 'MATERIAL'];
@@ -44,5 +45,9 @@ export const stockMovementSchema = z
     quantity: z.coerce.number({ invalid_type_error: 'Quantity must be a number.' }).min(0).max(9_999_999).refine((v) => decimalPlaces(v) <= 3, 'Quantity can have at most 3 decimal places.'),
     unitCost: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.coerce.number().min(0).max(9_999_999).refine((v) => decimalPlaces(v) <= 2, 'Cost can have at most 2 decimal places.').optional()),
     note: z.string().trim().max(200).transform((v) => v || null).nullable().optional(),
+    // PURCHASE only: what was actually paid. Blank = no money recorded (stock only). Becomes an Expense in the same transaction.
+    amountPaid: z.preprocess((v) => (v === '' || v == null ? undefined : v), amountMinor('Amount paid').optional()),
+    method: methodSchema,
   })
-  .refine((v) => v.type === 'ADJUSTMENT' || v.quantity > 0, { message: 'Quantity must be greater than zero.', path: ['quantity'] });
+  .refine((v) => v.type === 'ADJUSTMENT' || v.quantity > 0, { message: 'Quantity must be greater than zero.', path: ['quantity'] })
+  .refine((v) => v.type === 'PURCHASE' || v.amountPaid === undefined, { message: 'Amount paid only applies to a purchase.', path: ['amountPaid'] });

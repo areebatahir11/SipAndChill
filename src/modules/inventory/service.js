@@ -2,6 +2,9 @@ import { prisma } from '@/lib/db/prisma';
 import { HttpError } from '@/lib/http';
 import { isUniqueViolation } from '@/lib/db/errors';
 import { audit } from '@/modules/auth/audit';
+import { businessDay } from '@/lib/orders/dates.mjs';
+import { fromMinor, purchaseTotals } from '@/lib/expenses.mjs';
+import { stockPurchaseCategory } from '@/modules/expenses/service';
 
 const DUPLICATE = new HttpError(409, 'An item with this name already exists.', 'DUPLICATE');
 const num = (d) => (d == null ? null : Number(d));
@@ -119,8 +122,15 @@ export async function listMovements(tenantId, id, limit = 50) {
 /**
  * Records a purchase, wastage or stock count. Runs in one transaction and only applies the
  * change if the stock is still what we read (optimistic check), so two cashiers cannot corrupt it.
+ *
+ * A PURCHASE that carries `amountPaid` (integer paisa) also records the money spent as an Expense, in the SAME
+ * transaction and linked to the stock movement: stock and money can never disagree, and nothing is typed twice.
+ * A PURCHASE without `amountPaid` only adds stock (no money is recorded), exactly as before.
  */
-export async function recordMovement(auth, id, { type, quantity, unitCost, note }) {
+export async function recordMovement(auth, id, { type, quantity, unitCost, note, amountPaid, method = 'CASH' }) {
+  const paid = type === 'PURCHASE' && amountPaid ? amountPaid : null;
+  const categoryId = paid ? await stockPurchaseCategory(auth.tenantId) : null;
+
   const result = await prisma.$transaction(async (tx) => {
     const item = await findItem(auth.tenantId, id, tx);
     if (!item.isActive) throw new HttpError(400, 'This item is archived.', 'ARCHIVED');
@@ -141,11 +151,77 @@ export async function recordMovement(auth, id, { type, quantity, unitCost, note 
     });
     if (applied.count === 0) throw new HttpError(409, 'Stock changed while you were editing. Please try again.', 'CONFLICT');
 
+    const expense = paid
+      ? await tx.expense.create({
+          data: {
+            tenantId: auth.tenantId, categoryId, source: 'STOCK_PURCHASE', amount: fromMinor(paid), method, businessDate: businessDay(),
+            supplierId: item.supplierId, createdById: auth.user.id, note: `Stock purchase: ${item.name} ${quantity} ${item.unit}`,
+          },
+        })
+      : null;
+
     await tx.stockMovement.create({
-      data: { tenantId: auth.tenantId, ingredientId: id, type, quantity: delta, unitCost: type === 'PURCHASE' ? unitCost : undefined, note, userId: auth.user.id },
+      data: { tenantId: auth.tenantId, ingredientId: id, type, quantity: delta, unitCost: type === 'PURCHASE' ? unitCost : undefined, note, userId: auth.user.id, expenseId: expense?.id },
     });
     return findItem(auth.tenantId, id, tx);
   });
-  await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: `inventory.${type.toLowerCase()}`, entity: 'Ingredient', entityId: id, metadata: { quantity, unitCost, note } });
+  await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: `inventory.${type.toLowerCase()}`, entity: 'Ingredient', entityId: id, metadata: { quantity, unitCost, note, ...(paid ? { amountPaid: fromMinor(paid), method } : {}) } });
   return toItem(result);
+}
+
+/**
+ * One shopping trip: several items bought together and paid in one go (milk + chocolate + sugar...).
+ * One transaction: every item's stock goes up with its own stock movement, and ONE Expense records the money paid.
+ * If anything fails (an archived item, stock changed under us), nothing is saved.
+ * `amountPaid` is integer paisa; blank means exactly the total of the lines.
+ */
+export async function recordPurchase(auth, { supplierId, invoiceNo, businessDate, method = 'CASH', amountPaid, items }) {
+  const ids = items.map((i) => i.ingredientId);
+  if (new Set(ids).size !== ids.length) throw new HttpError(400, 'Each item can be added only once. Combine the quantities.', 'DUPLICATE_ITEM');
+  await assertSupplier(auth.tenantId, supplierId);
+
+  let totals;
+  try { totals = purchaseTotals(items); } catch (e) {
+    if (e instanceof RangeError) throw new HttpError(400, e.message, 'BAD_AMOUNT');
+    throw e;
+  }
+  const paidMinor = amountPaid ?? totals.totalMinor;
+  if (paidMinor <= 0) throw new HttpError(400, 'Enter the cost of the items, or the total amount paid, so the money spent is recorded.', 'NO_AMOUNT');
+
+  const categoryId = await stockPurchaseCategory(auth.tenantId);
+  const day = new Date(`${businessDate}T00:00:00.000Z`);
+  const ordered = [...items].sort((a, b) => (a.ingredientId < b.ingredientId ? -1 : 1)); // same lock order for everyone: no deadlocks
+
+  const { expense, names } = await prisma.$transaction(async (tx) => {
+    const found = [];
+    for (const line of ordered) found.push([line, await findItem(auth.tenantId, line.ingredientId, tx)]);
+    const archived = found.find(([, item]) => !item.isActive);
+    if (archived) throw new HttpError(400, `${archived[1].name} is archived. Remove it from the purchase.`, 'ARCHIVED');
+
+    const created = await tx.expense.create({
+      data: {
+        tenantId: auth.tenantId, categoryId, source: 'STOCK_PURCHASE', amount: fromMinor(paidMinor), method, businessDate: day,
+        supplierId: supplierId || null, createdById: auth.user.id,
+        note: `Stock purchase: ${items.length} item${items.length > 1 ? 's' : ''}${invoiceNo ? `, invoice ${invoiceNo}` : ''}`,
+      },
+    });
+    for (const [line, item] of found) {
+      const after = Math.round((Number(item.stock) + line.quantity) * 1000) / 1000;
+      const applied = await tx.ingredient.updateMany({
+        where: { id: item.id, tenantId: auth.tenantId, stock: item.stock },
+        data: { stock: after, ...(line.unitCost > 0 ? { costPerUnit: line.unitCost } : {}) },
+      });
+      if (applied.count === 0) throw new HttpError(409, `Stock of ${item.name} changed while you were editing. Please try again.`, 'CONFLICT');
+      await tx.stockMovement.create({
+        data: {
+          tenantId: auth.tenantId, ingredientId: item.id, type: 'PURCHASE', quantity: line.quantity, unitCost: line.unitCost > 0 ? line.unitCost : undefined,
+          note: invoiceNo ? `Invoice ${invoiceNo}` : undefined, userId: auth.user.id, expenseId: created.id,
+        },
+      });
+    }
+    return { expense: created, names: found.map(([, item]) => item.name) };
+  });
+
+  await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'inventory.purchase_recorded', entity: 'Expense', entityId: expense.id, metadata: { items: names, amountPaid: fromMinor(paidMinor), method, invoiceNo } });
+  return { expenseId: expense.id, items: items.length, amountPaid: Number(fromMinor(paidMinor)) };
 }

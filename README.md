@@ -8,7 +8,7 @@ Next.js (App Router) + Tailwind CSS v4 + Prisma/PostgreSQL. First client: Sip & 
 3. `npx prisma migrate dev`
 4. Supabase only: run `prisma/supabase-rls.sql` in the SQL Editor.
 5. Run `npm run db:seed`, then `npm run dev` and open http://localhost:3000
-6. `npm test` runs the unit tests (`tests/core-rules.test.mjs`: money/payments, permissions, date ranges, recipes, receipt model, logo rules, security headers, API guards).
+6. `npm test` runs the unit tests (`tests/core-rules.test.mjs`: money/payments, permissions, date ranges, recipes, receipt model, logo rules, security headers, API guards). `tests/expenses.test.mjs` covers expense and purchase rules, permissions, route guards, tenant scoping and the migration.
 
 ## Folder structure
 ```
@@ -100,6 +100,17 @@ Business day = Pakistan time (UTC+5), set in `src/lib/orders/dates.mjs`. Invento
 - *First-time hardware checklist:* connect on `/printer` -> Print test slip (ruler lines must fit) -> make a sale -> confirm cut and drawer -> unplug the cable and sell once to see the error message -> reconnect and Print again.
 
 **Known limits (Version 1):** no discounts or tax workflow (columns reserved); recipe quantities are in each ingredient's own unit (no unit conversion); cash only; cancelling does not track a refund; no "pending" order state (the counter confirms and pays immediately).
+
+## Expenses (daily spending)
+One new sidebar page, **Expenses**, for the Business Owner and Managers. Everything else lives in existing screens.
+- **Two sources, one ledger.** Rent, bills and salaries are typed on the Expenses page. Money spent on stock is recorded from the Stock page
+  (*Update stock -> Amount paid*, or *Record purchase* for a whole shopping trip) and appears in Expenses automatically as "From stock", so nothing is typed twice.
+- **Stock and money never disagree.** A paid purchase saves the stock increase, the stock movements and the expense in ONE database transaction.
+- **No deleting.** A mistaken manual expense is *voided* with a reason (kept in the list, greyed out, excluded from totals). Stock purchases are corrected from the Stock page.
+- **Dashboard.** Spent on stock, other expenses and *received minus spent*, for the same date filters as sales. This is a cash view, not profit (see "Not built yet").
+- **Permissions.** `expenses.view` / `expenses.manage` (Owner, Manager). Inventory Staff can still record a purchase (`inventory.adjust`) but never sees financial pages. Cashier: none.
+- **Upgrading an existing shop:** run `npx prisma migrate deploy` (migration `20261117100000_expenses`), then `npm run db:seed` once so the new permissions are attached to the Owner and Manager roles. Expense categories are created automatically the first time they are used.
+- **Not built yet:** buying on credit / supplier payables, weighted-average cost and profit (needs a cost snapshot on stock usage), recurring monthly expenses, editing an expense (void and re-enter instead).
 
 ## Who can do what
 - **Business owner (your customer)**: signs up by themselves at `/signup` (business name, type, their name, email, password). They get a 14-day free trial, become the single Business Owner and are signed in. They then add managers and staff under *My Team*, never another owner.
