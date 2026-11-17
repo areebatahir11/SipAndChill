@@ -20,6 +20,7 @@ import ProductThumb from '@/features/products/ProductThumb';
 import PromoBanner from '@/features/promotions/PromoBanner';
 import usePromotion from '@/features/promotions/usePromotion';
 import { orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
+import { MAX_MANUAL_DISCOUNT, parseManualDiscount } from '@/lib/promotions/manual-discount.mjs';
 
 /** crypto.randomUUID needs HTTPS; a tablet on the shop's local network may use plain http. */
 function newRequestId() {
@@ -46,6 +47,7 @@ export default function PosCounter({ shopPaper = 80 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // confirmed order, shown in the success dialog
+  const [discountText, setDiscountText] = useState(''); // special discount in rupees typed by the cashier (blank = none)
   const [sheet, setSheet] = useState(false); // phones/tablets: the order slides up from the bottom bar
   const promo = usePromotion(menu?.promotion ?? null);
   const printerState = usePrinter();
@@ -69,7 +71,7 @@ export default function PosCounter({ shopPaper = 80 }) {
   useEffect(() => { loadMenu(); }, [loadMenu]);
 
   // Same request id = the same order. Any change to the cart or the payment makes it a different order.
-  useEffect(() => { requestId.current = newRequestId(); }, [cart, payForm]);
+  useEffect(() => { requestId.current = newRequestId(); }, [cart, payForm, discountText]);
 
   const add = (p) => {
     setError('');
@@ -92,8 +94,11 @@ export default function PosCounter({ shopPaper = 80 }) {
   // Preview only: the server recalculates the discount from its own clock when the order is saved.
   const totals = useMemo(() => {
     const lines = cart.map((l) => ({ unitPriceMinor: l.priceMinor, quantity: l.qty }));
-    return calcOrder(lines, orderDiscountMinor(lines, promo.percent));
-  }, [cart, promo.percent]);
+    const promoDiscountMinor = orderDiscountMinor(lines, promo.percent);
+    const subtotalMinor = lines.reduce((s, l) => s + l.unitPriceMinor * l.quantity, 0);
+    const manual = parseManualDiscount(discountText, subtotalMinor - promoDiscountMinor); // an invalid amount counts as 0 and blocks Confirm
+    return { ...calcOrder(lines, promoDiscountMinor + manual.minor), promoDiscountMinor, manualMinor: manual.minor, discountError: manual.error };
+  }, [cart, promo.percent, discountText]);
   // Preview of the payment (change, outstanding, status) and the rows to send. The server re-checks every rule when the order is saved.
   const payRes = useMemo(() => (canPay ? readPayForm(payForm, totals.totalMinor) : { payments: [], pay: null, error: '' }), [canPay, payForm, totals.totalMinor]);
 
@@ -104,18 +109,18 @@ export default function PosCounter({ shopPaper = 80 }) {
   const products = useMemo(() => (menu?.products ?? []).filter((p) => (category === 'all' || p.categoryId === category) && p.name.toLowerCase().includes(search.trim().toLowerCase())), [menu, category, search]);
 
   async function confirm() {
-    if (busy || cart.length === 0 || payRes.error) return; // busy guard stops double taps
+    if (busy || cart.length === 0 || payRes.error || totals.discountError) return; // busy guard stops double taps
     setBusy(true); setError('');
     try {
       const { order } = await api('/api/orders', {
         method: 'POST',
-        body: { clientRequestId: requestId.current, items: cart.map((l) => ({ productId: l.productId, quantity: l.qty })), payments: canPay ? payloadOf(payRes.payments) : [] },
+        body: { clientRequestId: requestId.current, items: cart.map((l) => ({ productId: l.productId, quantity: l.qty })), payments: canPay ? payloadOf(payRes.payments) : [], ...(totals.manualMinor > 0 ? { discount: fromMinor(totals.manualMinor) } : {}) },
       });
       setDone({ order }); // figures shown come from the saved order, so a retried (duplicate) request still shows the truth
       // Receipt printer connected on this counter: print straight away (silent, no dialog). A failure never blocks the sale.
       const live = printerState.api.getSnapshot().config;
       if (canPrint && printerState.api.isDirect(live) && live.autoPrint && printerState.api.getSnapshot().link !== 'blocked') printerState.api.printOrder(order.id).catch(() => {});
-      setCart([]); setPayForm(emptyPayForm()); setSheet(false); loadMenu();
+      setCart([]); setPayForm(emptyPayForm()); setDiscountText(''); setSheet(false); loadMenu();
     } catch (e) {
       setError(e.message); loadMenu(); // stock may have changed: refresh availability
     }
@@ -166,12 +171,33 @@ export default function PosCounter({ shopPaper = 80 }) {
 
       <dl className="mt-4 grid gap-2 border-t border-slate pt-4">
         <Row label="Subtotal" value={money(fromMinor(totals.subtotalMinor))} />
-        {totals.discountMinor > 0 && <Row label={`Discount (${promo.promotion.short})`} value={`− ${money(fromMinor(totals.discountMinor))}`} />}
+        {totals.promoDiscountMinor > 0 && <Row label={`Discount (${promo.promotion.short})`} value={`− ${money(fromMinor(totals.promoDiscountMinor))}`} />}
+        {totals.manualMinor > 0 && <Row label="Special discount" value={`− ${money(fromMinor(totals.manualMinor))}`} />}
         <div className="flex items-end justify-between gap-3 rounded-2xl bg-rose px-4 py-3 text-night">
           <dt className="font-semibold">Order Total</dt>
-          <dd className="text-3xl font-extrabold tracking-tight">{money(fromMinor(totals.totalMinor))}</dd>
+          <dd className="text-right">
+            {totals.discountMinor > 0 && <span className="block text-sm font-bold leading-none">− {money(fromMinor(totals.discountMinor))}</span>}
+            <span className="text-3xl font-extrabold tracking-tight">{money(fromMinor(totals.totalMinor))}</span>
+          </dd>
         </div>
       </dl>
+
+      {cart.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-dashed border-sand/40 bg-slate/50 p-3.5">
+          <label htmlFor="special-discount" className="flex items-center gap-2 text-sm font-semibold text-white"><span aria-hidden>🎁</span>Special discount <span className="font-normal text-sand/70">(regular customer)</span></label>
+          <div className="mt-2 flex items-center gap-2">
+            <span className="rounded-xl bg-night px-3 py-2.5 text-sm font-bold text-sand">Rs</span>
+            <input id="special-discount" type="text" inputMode="decimal" autoComplete="off" maxLength={7} placeholder="0" value={discountText}
+              aria-invalid={Boolean(totals.discountError)} aria-describedby="special-discount-help"
+              onChange={(e) => { const v = e.target.value; if (/^\d{0,4}(\.\d{0,2})?$/.test(v)) setDiscountText(v); }}
+              className="min-w-0 flex-1 rounded-xl border-2 border-transparent bg-white px-3 py-2.5 text-lg font-bold text-night placeholder:text-graphite/50 focus:border-rose focus:outline-none aria-[invalid=true]:border-rose" />
+            {discountText && <button type="button" onClick={() => setDiscountText('')} className="cursor-pointer rounded-full px-2 text-sm text-sand/80 hover:text-white" aria-label="Remove special discount">✕</button>}
+          </div>
+          <p id="special-discount-help" role={totals.discountError ? 'alert' : undefined} className={`mt-1.5 text-[13px] ${totals.discountError ? 'font-semibold text-rose' : 'text-sand/70'}`}>
+            {totals.discountError || `Amount to take off the bill, e.g. 100. Up to Rs ${MAX_MANUAL_DISCOUNT}.`}
+          </p>
+        </div>
+      )}
 
       {canPay && cart.length > 0 && <div className="mt-4"><PaymentPicker form={payForm} setForm={setPayForm} dueMinor={totals.totalMinor} result={payRes} tone="dark" /></div>}
       {!canPay && cart.length > 0 && <p className="mt-3 text-[13px] text-sand/80">Your role cannot record payments; the order will be saved as unpaid.</p>}
@@ -179,11 +205,11 @@ export default function PosCounter({ shopPaper = 80 }) {
       {error && <Alert className="mt-3">{error}</Alert>}
       </div>
       <div className="grid gap-2 border-t border-slate bg-night px-5 pb-5 pt-3">
-        <button type="button" disabled={busy || cart.length === 0 || Boolean(payRes.error)} onClick={confirm}
+        <button type="button" disabled={busy || cart.length === 0 || Boolean(payRes.error) || Boolean(totals.discountError)} onClick={confirm}
           className="cursor-pointer rounded-2xl bg-white px-4 py-4 text-lg font-extrabold text-night transition enabled:hover:bg-sand enabled:active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40">
           {busy ? 'Confirming…' : 'Confirm order'}
         </button>
-        {cart.length > 0 && !busy && <button type="button" onClick={() => { setCart([]); setPayForm(emptyPayForm()); setError(''); }} className="cursor-pointer rounded-full py-1.5 text-sm text-sand/80 hover:text-white">Clear order</button>}
+        {cart.length > 0 && !busy && <button type="button" onClick={() => { setCart([]); setPayForm(emptyPayForm()); setDiscountText(''); setError(''); }} className="cursor-pointer rounded-full py-1.5 text-sm text-sand/80 hover:text-white">Clear order</button>}
       </div>
     </aside>
   );
@@ -251,7 +277,7 @@ export default function PosCounter({ shopPaper = 80 }) {
         <Modal title={`Order #${done.order.orderNo} confirmed`} onClose={() => setDone(null)}>
           <dl className="grid gap-2">
             {Number(done.order.discount) > 0 && <Row label={done.order.discountLabel ? `Discount (${done.order.discountLabel})` : 'Discount'} value={`− ${money(done.order.discount)}`} />}
-            <Row label="Order Total" value={money(done.order.total)} big />
+            <Row label="Order Total" value={<>{Number(done.order.discount) > 0 && <small className="mr-2 text-sm font-bold opacity-75">− {money(done.order.discount)}</small>}{money(done.order.total)}</>} big />
             {done.order.payments.map((p) => <Row key={p.id} label={`${methodLabel(p.method)}${p.reference ? ` (ID ${p.reference})` : ''}`} value={money(p.amountReceived)} />)}
             {done.order.payments.some((p) => p.method === 'CASH') && <Row label="Change Returned" value={money(sum(done.order.payments, 'changeReturned'))} big />}
             {done.order.paymentStatus !== 'PAID' && <Row label="Outstanding Amount" value={money(done.order.outstanding)} />}

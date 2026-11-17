@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { toMinor } from '@/lib/money.mjs';
 import { parseBusinessDay } from '@/lib/orders/dates.mjs';
 import { PAYMENT_METHODS } from '@/lib/payments.mjs';
+import { MAX_MANUAL_DISCOUNT, MAX_MANUAL_DISCOUNT_MINOR } from '@/lib/promotions/manual-discount.mjs';
 
 /** Money from a form/JSON: string or number, max 2 decimals, never negative. Output is integer paisa. */
 const money = (label) =>
@@ -28,8 +29,11 @@ export const createOrderSchema = z.object({
   })).min(1, 'Add at least one item.').max(60, 'Too many different items in one order.'),
   payments: paymentList.optional(),
   amountReceived: money('Amount received').default('0'), // older screens still send one cash amount: it becomes one cash payment
-}).transform(({ amountReceived, payments, ...rest }) => ({
+  // Special discount in rupees (optional). Never negative (money() rejects a minus sign); the bill-based limit is checked by createOrder.
+  discount: money('Discount').refine((v) => v <= MAX_MANUAL_DISCOUNT_MINOR, `Discount cannot be more than Rs ${MAX_MANUAL_DISCOUNT}.`).default('0'),
+}).transform(({ amountReceived, payments, discount, ...rest }) => ({
   ...rest,
+  manualDiscountMinor: discount,
   payments: payments ?? (amountReceived > 0 ? [{ method: 'CASH', amountMinor: amountReceived, reference: null }] : []),
 }));
 

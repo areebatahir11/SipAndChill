@@ -6,6 +6,7 @@ import { hasPermission, PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import { calcOrder, fromMinor, toMinor, MAX_MINOR } from '@/lib/money.mjs';
 import { methodLabel, settlePayments } from '@/lib/payments.mjs';
 import { activePromotion, currentOrUpcoming, discountLabel, orderDiscountMinor } from '@/lib/promotions/promotions.mjs';
+import { combinedDiscountLabel, manualDiscountProblem } from '@/lib/promotions/manual-discount.mjs';
 import { consumption, fromMilli, maxServings, mergeLines, toMilli } from '@/lib/orders/recipe.mjs';
 import { businessDay, parseBusinessDay } from '@/lib/orders/dates.mjs';
 import { ATTENTION_GRACE_MS, ATTENTION_WINDOW_MS, nextPrintState, PRINT_STATUS } from '@/lib/orders/print-status.mjs';
@@ -121,7 +122,7 @@ export async function listPosProducts(tenantId) {
  * Stock safety: each ingredient is decremented with `UPDATE ... WHERE stock >= need`, so two
  * simultaneous orders cannot drive stock below zero (the DB also has CHECK stock >= 0).
  */
-export async function createOrder(auth, { clientRequestId, items, payments = [] }) {
+export async function createOrder(auth, { clientRequestId, items, payments = [], manualDiscountMinor = 0 }) {
   if (payments.length > 0 && !hasPermission(auth.permissions, P.PAYMENTS_RECORD)) {
     throw new HttpError(403, 'You are not allowed to record payments.', 'FORBIDDEN');
   }
@@ -147,7 +148,12 @@ export async function createOrder(auth, { clientRequestId, items, payments = [] 
       const priced = lines.map((l) => ({ productId: l.productId, quantity: l.quantity, unitPriceMinor: toMinor(dec(byId.get(l.productId).price)) }));
       // Promotion: decided HERE from the server clock and the dates in lib/promotions (the browser's idea of the discount is never trusted).
       const promo = activePromotion(new Date());
-      const calc = calcOrder(priced, promo ? orderDiscountMinor(priced, promo.percent) : 0);
+      const promoDiscountMinor = promo ? orderDiscountMinor(priced, promo.percent) : 0;
+      // Special discount typed by the cashier: checked HERE against the real bill (never negative, within the limit, customer still pays something).
+      const subtotalMinor = priced.reduce((s, l) => s + l.unitPriceMinor * l.quantity, 0);
+      const manualProblem = manualDiscountProblem(manualDiscountMinor, subtotalMinor - promoDiscountMinor);
+      if (manualProblem) throw new HttpError(400, manualProblem, 'BAD_DISCOUNT');
+      const calc = calcOrder(priced, promoDiscountMinor + manualDiscountMinor);
       // The total columns are DECIMAL(12,2): refuse an absurd order with a clear message instead of a database error.
       if (calc.totalMinor > MAX_MINOR) throw new HttpError(400, 'This order total is too large. Please reduce the quantities.', 'TOTAL_TOO_LARGE');
       const pay = settle(calc.totalMinor, 0, payments);
@@ -167,7 +173,7 @@ export async function createOrder(auth, { clientRequestId, items, payments = [] 
         data: {
           tenantId: auth.tenantId, orderNo, businessDate, dailyNo, createdAt: now, clientRequestId,
           status: 'COMPLETED', paymentStatus: pay.status,
-          subtotal: fromMinor(calc.subtotalMinor), discount: fromMinor(calc.discountMinor), discountLabel: calc.discountMinor > 0 ? discountLabel(promo) : null, total: fromMinor(calc.totalMinor),
+          subtotal: fromMinor(calc.subtotalMinor), discount: fromMinor(calc.discountMinor), discountLabel: calc.discountMinor > 0 ? combinedDiscountLabel(discountLabel(promo), manualDiscountMinor > 0) : null, total: fromMinor(calc.totalMinor),
           amountPaid: fromMinor(pay.paidMinor),
           cashierId: auth.user.id, cashierName: auth.user.name,
           items: { create: calc.items.map((i) => ({ tenantId: auth.tenantId, productId: i.productId, name: byId.get(i.productId).name, unitPrice: fromMinor(i.unitPriceMinor), quantity: i.quantity, lineTotal: fromMinor(i.lineTotalMinor) })) },
@@ -191,7 +197,7 @@ export async function createOrder(auth, { clientRequestId, items, payments = [] 
       return created;
     }, TX);
 
-    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, dailyNo: order.dailyNo, businessDate: order.businessDate.toISOString().slice(0, 10), total: dec(order.total), discount: dec(order.discount), paymentStatus: order.paymentStatus, ...(order.payments.length ? { methods: order.payments.map((p) => ({ method: p.method, amount: dec(p.amountApplied), ...(p.reference ? { reference: p.reference } : {}) })) } : {}) } });
+    await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'order.created', entity: 'Order', entityId: order.id, metadata: { orderNo: order.orderNo, dailyNo: order.dailyNo, businessDate: order.businessDate.toISOString().slice(0, 10), total: dec(order.total), discount: dec(order.discount), ...(manualDiscountMinor > 0 ? { specialDiscount: fromMinor(manualDiscountMinor) } : {}), paymentStatus: order.paymentStatus, ...(order.payments.length ? { methods: order.payments.map((p) => ({ method: p.method, amount: dec(p.amountApplied), ...(p.reference ? { reference: p.reference } : {}) })) } : {}) } });
     return { order: toOrder(order), duplicate: false };
   } catch (e) {
     // Two identical requests raced: the loser hits the unique key, rolls back, and returns the winner's order.

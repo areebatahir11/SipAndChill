@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import PrintReceiptButton from '@/features/printing/PrintReceiptButton';
 import PrintStatusPill from '@/features/printing/PrintStatusPill';
-import { DataTable, Td } from '@/components/ui';
+import { DataTable, Pill, Td } from '@/components/ui';
 import { OrderStatusPills } from './OrderStatusPills';
 import OrderNo from './OrderNo';
 import { dayLabel, longDayLabel } from '@/lib/orders/dates.mjs';
@@ -40,7 +40,10 @@ function OrderRows({ o, first, days, canPrint, span }) {
         <Td><OrderNo no={o.orderNo} date={o.businessDate} /></Td>
         <Td>{dateTime(o.createdAt)}</Td>
         <Td>{o.cashierName}</Td>
-        <Td>{money(o.total)}</Td>
+        <Td>
+          {Number(o.discount) > 0 && <div className="text-xs font-semibold leading-none text-graphite" title={o.discountLabel ?? 'Discount'}>− {money(o.discount)}</div>}
+          <span className="whitespace-nowrap">{money(o.total)}{Number(o.discount) > 0 && <> <Pill tone="neutral">Discounted</Pill></>}</span>
+        </Td>
         <Td>{money(o.amountPaid)}</Td>
         <Td><OrderStatusPills order={o} /></Td>
         {canPrint && <Td><PrintStatusPill status={o.printStatus} attempts={o.printAttempts} /></Td>}
