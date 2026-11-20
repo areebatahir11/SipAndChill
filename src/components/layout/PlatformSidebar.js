@@ -26,6 +26,7 @@ export default function PlatformSidebar({ user }) {
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
         <NavLink href="/platform" hint="Earnings and who needs to pay">Overview</NavLink>
         <NavLink href="/platform/clients" exact={false} hint="Shops using your software">My Clients</NavLink>
+        <NavLink href="/platform/usage" hint="Logins and features used">Usage Analytics</NavLink>
         <NavLink href="/platform/account" hint="Change your password">My Account</NavLink>
       </nav>
 

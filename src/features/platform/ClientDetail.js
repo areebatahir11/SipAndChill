@@ -9,6 +9,7 @@ import { useSubmit } from '@/lib/use-submit';
 import { AccessPill, BillingPill } from './ClientPills';
 import BillingDialog from './BillingDialog';
 import ClientLogoCard from './ClientLogoCard';
+import ClientUsageCard from './ClientUsageCard';
 import MenuSetupCard from './MenuSetupCard';
 import EditClientDialog from './EditClientDialog';
 import ResetOwnerPasswordDialog from './ResetOwnerPasswordDialog';
@@ -107,6 +108,8 @@ export default function ClientDetail({ id }) {
         <ClientLogoCard clientId={id} logoVersion={client.logoVersion} onChanged={saved} />
         <MenuSetupCard clientId={id} clientName={client.name} clientSlug={client.slug} onChanged={setNotice} />
       </div>
+
+      {client.status === 'ACTIVE' && <ClientUsageCard clientId={id} />}
 
       <h2 className="mb-3.5 mt-9 text-xl font-semibold">Owner login</h2>
       <DataTable head={['Name', 'Email', 'Status', 'Last sign-in', '']} emptyText={client.owners.length === 0 ? 'This client has no owner account.' : null}>
