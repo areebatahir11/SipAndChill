@@ -69,6 +69,19 @@ export function voidProblem(expense) {
   return null;
 }
 
+/** The word a platform admin must type to confirm a permanent delete (checked by the server, not just the form). */
+export const PURGE_CONFIRM_PHRASE = 'PURGE';
+
+/**
+ * Permanent deletion (Business Owner only) is a last resort, so it is narrower than voiding:
+ * only an expense that was already voided, and only a hand-typed one (stock purchases are tied to stock movements).
+ */
+export function purgeProblem(expense) {
+  if (!expense.voidedAt) return 'Only a voided expense can be permanently deleted. Void it first.';
+  if (expense.source !== 'MANUAL') return 'This came from a stock purchase and is linked to stock records. It cannot be deleted.';
+  return null;
+}
+
 /** A business date for an expense must be a real day, not in the future and not more than a year back (catches typos like 2025). */
 export function dateProblem(day, today) {
   if (day > today) return 'The date cannot be in the future.';

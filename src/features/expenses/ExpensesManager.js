@@ -9,13 +9,15 @@ import { METHOD_LABEL } from '@/lib/payments.mjs';
 import { PERMISSIONS as P } from '@/lib/permissions/codes.mjs';
 import ExpenseFormDialog from './ExpenseFormDialog';
 import VoidExpenseDialog from './VoidExpenseDialog';
+import PurgeExpenseDialog from './PurgeExpenseDialog';
 import CategoriesDialog from './CategoriesDialog';
 
 export default function ExpensesManager({ data, categories, suppliers, view, rangeError, children }) {
   const router = useRouter();
   const { can } = useAuth();
   const canManage = can(P.EXPENSES_MANAGE);
-  const [dialog, setDialog] = useState(null); // { type: 'form' | 'void' | 'categories', expense? }
+  const canPurge = can(P.EXPENSES_PURGE); // Business Owner only
+  const [dialog, setDialog] = useState(null); // { type: 'form' | 'void' | 'purge' | 'categories', expense? }
   const [notice, setNotice] = useState('');
   const { rows, summary, page, pages, total } = data;
   const rangeText = view.from === view.to ? view.from : `${view.from} to ${view.to}`;
@@ -78,6 +80,7 @@ export default function ExpensesManager({ data, categories, suppliers, view, ran
             <Td className="text-right">
               {canManage && !e.voided && e.source === 'MANUAL' && <Button size="sm" variant="danger" onClick={() => setDialog({ type: 'void', expense: e })}>Void</Button>}
               {e.voided && <Pill tone="off">Voided</Pill>}
+              {e.voided && canPurge && e.source === 'MANUAL' && <Button size="sm" variant="danger" className="ml-2" onClick={() => setDialog({ type: 'purge', expense: e })}>Delete…</Button>}
             </Td>
           </tr>
         ))}
@@ -106,6 +109,7 @@ export default function ExpensesManager({ data, categories, suppliers, view, ran
 
       {dialog?.type === 'form' && <ExpenseFormDialog categories={categories} suppliers={suppliers} onSaved={saved} onClose={close} />}
       {dialog?.type === 'void' && <VoidExpenseDialog expense={dialog.expense} onSaved={saved} onClose={close} />}
+      {dialog?.type === 'purge' && <PurgeExpenseDialog expense={dialog.expense} onSaved={saved} onClose={close} />}
       {dialog?.type === 'categories' && <CategoriesDialog categories={categories} onChanged={() => router.refresh()} onClose={close} />}
     </>
   );

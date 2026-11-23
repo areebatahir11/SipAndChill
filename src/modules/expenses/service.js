@@ -3,7 +3,7 @@ import { HttpError } from '@/lib/http';
 import { isUniqueViolation } from '@/lib/db/errors';
 import { audit } from '@/modules/auth/audit';
 import { parseBusinessDay } from '@/lib/orders/dates.mjs';
-import { DEFAULT_CATEGORIES, STOCK_PURCHASE_CATEGORY, businessDateBounds, decimalToMinor, fromMinor, minorToNumber, voidProblem } from '@/lib/expenses.mjs';
+import { DEFAULT_CATEGORIES, STOCK_PURCHASE_CATEGORY, businessDateBounds, decimalToMinor, fromMinor, minorToNumber, purgeProblem, voidProblem } from '@/lib/expenses.mjs';
 
 const PAGE_SIZE = 25;
 const num = (d) => (d == null ? 0 : Number(d));
@@ -115,6 +115,37 @@ export async function voidExpense(auth, id, { reason }) {
   if (res.count === 0) throw new HttpError(409, 'This expense was already voided.', 'CONFLICT');
   await audit({ tenantId: auth.tenantId, userId: auth.user.id, action: 'expense.voided', entity: 'Expense', entityId: id, metadata: { amount: num(row.amount), reason } });
   return { voided: true };
+}
+
+/**
+ * Permanently deletes ONE already-voided, hand-typed expense. Business Owner only (EXPENSES_PURGE), reason mandatory.
+ * The audit entry is written in the SAME transaction as the delete (unlike normal best-effort audits): if the record
+ * of the deletion cannot be saved, the deletion does not happen. It keeps a snapshot, because the row will be gone.
+ */
+export async function purgeExpense(auth, id, { reason }) {
+  return prisma.$transaction(async (tx) => {
+    const row = await tx.expense.findFirst({ where: { id, tenantId: auth.tenantId }, include: { category: { select: { name: true } } } });
+    if (!row) throw new HttpError(404, 'Expense not found.', 'NOT_FOUND');
+    const problem = purgeProblem(row);
+    if (problem) throw new HttpError(400, problem, 'CANNOT_PURGE');
+    // The rules are re-checked inside the delete itself, so a concurrent change cannot slip a live expense through.
+    const res = await tx.expense.deleteMany({ where: { id, tenantId: auth.tenantId, source: 'MANUAL', voidedAt: { not: null } } });
+    if (res.count === 0) throw new HttpError(409, 'This expense changed or was already deleted.', 'CONFLICT');
+    await tx.auditLog.create({
+      data: {
+        tenantId: auth.tenantId, userId: auth.user.id, action: 'expense.purged', entity: 'Expense', entityId: id,
+        metadata: {
+          reason,
+          snapshot: {
+            businessDate: row.businessDate.toISOString().slice(0, 10), category: row.category.name, amount: num(row.amount), method: row.method,
+            note: row.note, createdById: row.createdById, createdAt: row.createdAt.toISOString(),
+            voidedById: row.voidedById, voidedAt: row.voidedAt.toISOString(), voidReason: row.voidReason,
+          },
+        },
+      },
+    });
+    return { purged: true };
+  });
 }
 
 /**

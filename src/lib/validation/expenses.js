@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { businessDay, localDateString } from '@/lib/orders/dates.mjs';
 import { decimalPlaces } from '@/lib/money.mjs';
-import { dateProblem, parseAmountMinor, PAYMENT_METHODS } from '@/lib/expenses.mjs';
+import { dateProblem, parseAmountMinor, PAYMENT_METHODS, PURGE_CONFIRM_PHRASE } from '@/lib/expenses.mjs';
 import { optionalText, requiredName } from './common';
 
 /** Money from a form field ("1500", 1500.5). Becomes integer paisa; > 0, at most 2 decimals. */
@@ -50,6 +50,12 @@ export const createExpenseSchema = z.object({
 
 export const voidExpenseSchema = z.object({
   reason: z.string().trim().min(3, 'Please write a short reason.').max(200),
+});
+
+/** Permanent delete of one voided expense: a real reason plus the typed confirmation word, both enforced on the server. */
+export const purgeExpenseSchema = z.object({
+  reason: z.string().trim().min(10, 'Please write why this must be deleted (at least 10 characters).').max(300),
+  confirm: z.string().trim().refine((v) => v === PURGE_CONFIRM_PHRASE, `Type ${PURGE_CONFIRM_PHRASE} to confirm.`),
 });
 
 export const createCategorySchema = z.object({ name: requiredName('Name') });
